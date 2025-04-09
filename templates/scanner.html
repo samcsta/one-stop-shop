@@ -1,0 +1,536 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="dashboard-header d-flex justify-content-between align-items-center mb-4">
+    <h1 class="dashboard-title">Scanner</h1>
+    <a href="{{ url_for('templates') }}" class="btn btn-info">
+        <i class="fas fa-file-code mr-2"></i>Manage Templates
+    </a>
+</div>
+
+<div class="row">
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-search mr-2 text-primary"></i>Scan Single Domain</h5>
+                <span class="badge badge-primary" id="nuclei-status-badge" style="display: none;">Using Nuclei</span>
+            </div>
+            <div class="card-body">
+                <form id="single-domain-form" onsubmit="scanDomain(); return false;">
+                    <div class="form-group">
+                        <label for="single-domain-input">Domain:</label>
+                        <div class="input-group">
+                            <div class="input-group-prepend">
+                                <span class="input-group-text"><i class="fas fa-globe"></i></span>
+                            </div>
+                            <input type="text" class="form-control" id="single-domain-input" 
+                                   placeholder="example.com" value="{{ domain_to_scan }}" required>
+                        </div>
+                        <small class="form-text text-muted">Enter domain without http:// or https://</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-cog mr-1 text-primary"></i>Scan Options:</label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="scan-cves" checked>
+                                    <label class="custom-control-label" for="scan-cves">CVEs</label>
+                                </div>
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="scan-vulns" checked>
+                                    <label class="custom-control-label" for="scan-vulns">Vulnerabilities</label>
+                                </div>
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="scan-misconfig" checked>
+                                    <label class="custom-control-label" for="scan-misconfig">Misconfigurations</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="scan-exposures" checked>
+                                    <label class="custom-control-label" for="scan-exposures">Exposures</label>
+                                </div>
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="scan-tech" checked>
+                                    <label class="custom-control-label" for="scan-tech">Technologies</label>
+                                </div>
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="scan-custom">
+                                    <label class="custom-control-label" for="scan-custom">Custom Templates</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-exclamation-triangle mr-1 text-primary"></i>Severity Levels:</label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="severity-critical" checked>
+                                    <label class="custom-control-label severity-critical" for="severity-critical">Critical</label>
+                                </div>
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="severity-high" checked>
+                                    <label class="custom-control-label severity-high" for="severity-high">High</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="severity-medium" checked>
+                                    <label class="custom-control-label severity-medium" for="severity-medium">Medium</label>
+                                </div>
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="severity-low">
+                                    <label class="custom-control-label severity-low" for="severity-low">Low</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-search mr-2"></i>Scan Domain
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-6 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-list mr-2 text-primary"></i>Scan Multiple Domains</h5>
+            </div>
+            <div class="card-body">
+                <form id="domain-list-form" onsubmit="scanDomainList(); return false;">
+                    <div class="form-group">
+                        <label for="domain-list-input">Domain List:</label>
+                        <textarea class="form-control" id="domain-list-input" rows="5" placeholder="example.com&#10;example.org&#10;example.net"></textarea>
+                        <small class="form-text text-muted">Enter one domain per line, without http:// or https://</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <div class="custom-control custom-checkbox">
+                            <input type="checkbox" class="custom-control-input" id="use-same-options" checked>
+                            <label class="custom-control-label" for="use-same-options">Use same scan options and severity levels</label>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-search mr-2"></i>Scan Multiple Domains
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-terminal mr-2 text-primary"></i>Scanner Output</h5>
+                <button class="btn btn-sm btn-secondary" onclick="clearTerminal('scan-terminal')">
+                    <i class="fas fa-eraser mr-1"></i>Clear Output
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="terminal" id="scan-terminal">
+                    Scanner initialized and ready. Enter a domain or domain list to begin scanning.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-line mr-2 text-primary"></i>Scan Progress</h5>
+            </div>
+            <div class="card-body">
+                <div id="progress-container" style="display: none;">
+                    <div class="progress mb-3">
+                        <div id="scan-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%">0%</div>
+                    </div>
+                    <div class="d-flex justify-content-between">
+                        <span id="domains-scanned">0/0 domains scanned</span>
+                        <span id="scan-time">Elapsed time: 0s</span>
+                    </div>
+                </div>
+                <div id="scan-summary" class="mt-3" style="display: none;">
+                    <h6>Scan Summary</h6>
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="card bg-primary text-white">
+                                <div class="card-body p-2 text-center">
+                                    <h5 class="mb-0" id="total-domains">0</h5>
+                                    <small>Total Domains</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-success text-white">
+                                <div class="card-body p-2 text-center">
+                                    <h5 class="mb-0" id="active-domains">0</h5>
+                                    <small>Active Domains</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-secondary text-white">
+                                <div class="card-body p-2 text-center">
+                                    <h5 class="mb-0" id="inactive-domains">0</h5>
+                                    <small>Inactive Domains</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="card bg-danger text-white">
+                                <div class="card-body p-2 text-center">
+                                    <h5 class="mb-0" id="vulnerabilities-found">0</h5>
+                                    <small>Vulnerabilities</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let scanStartTime = 0;
+let intervalId = null;
+let totalDomains = 0;
+let scannedDomains = 0;
+let activeDomains = 0;
+let inactiveDomains = 0;
+let totalVulnerabilities = 0;
+let nucleiAvailable = false;
+
+// Check if Nuclei is available when the page loads
+window.addEventListener('DOMContentLoaded', function() {
+    fetch('/check-nuclei')
+        .then(response => response.json())
+        .then(data => {
+            nucleiAvailable = data.available;
+            if (nucleiAvailable) {
+                document.getElementById('nuclei-status-badge').style.display = 'inline-block';
+            }
+            
+            // Auto-run scan if URL parameters indicate to do so
+            const urlParams = new URLSearchParams(window.location.search);
+            const autorun = urlParams.get('autorun');
+            
+            if (autorun === 'true' && document.getElementById('single-domain-input').value) {
+                // Set options based on URL parameters
+                const options = urlParams.get('options');
+                if (options) {
+                    const optionList = options.split(',');
+                    document.getElementById('scan-cves').checked = optionList.includes('cves');
+                    document.getElementById('scan-vulns').checked = optionList.includes('vulnerabilities');
+                    document.getElementById('scan-misconfig').checked = optionList.includes('misconfiguration');
+                    document.getElementById('scan-exposures').checked = optionList.includes('exposures');
+                    document.getElementById('scan-tech').checked = optionList.includes('technologies');
+                    document.getElementById('scan-custom').checked = optionList.includes('custom');
+                }
+                
+                // Set severity levels based on URL parameters
+                const severity = urlParams.get('severity');
+                if (severity) {
+                    const severityList = severity.split(',');
+                    document.getElementById('severity-critical').checked = severityList.includes('critical');
+                    document.getElementById('severity-high').checked = severityList.includes('high');
+                    document.getElementById('severity-medium').checked = severityList.includes('medium');
+                    document.getElementById('severity-low').checked = severityList.includes('low');
+                }
+                
+                // Start the scan
+                setTimeout(scanDomain, 500);
+            }
+        })
+        .catch(error => {
+            console.error('Error checking Nuclei availability:', error);
+        });
+});
+
+function updateTimer() {
+    const elapsedSeconds = Math.floor((Date.now() - scanStartTime) / 1000);
+    const minutes = Math.floor(elapsedSeconds / 60);
+    const seconds = elapsedSeconds % 60;
+    document.getElementById('scan-time').textContent = `Elapsed time: ${minutes}m ${seconds}s`;
+}
+
+function updateProgress(current, total) {
+    const progressBar = document.getElementById('scan-progress-bar');
+    const percent = Math.floor((current / total) * 100);
+    progressBar.style.width = `${percent}%`;
+    progressBar.textContent = `${percent}%`;
+    document.getElementById('domains-scanned').textContent = `${current}/${total} domains scanned`;
+    
+    // Update summary statistics
+    document.getElementById('total-domains').textContent = total;
+    document.getElementById('active-domains').textContent = activeDomains;
+    document.getElementById('inactive-domains').textContent = inactiveDomains;
+    document.getElementById('vulnerabilities-found').textContent = totalVulnerabilities;
+}
+
+function startScanProgress(total) {
+    // Reset counters
+    totalDomains = total;
+    scannedDomains = 0;
+    activeDomains = 0;
+    inactiveDomains = 0;
+    totalVulnerabilities = 0;
+    
+    // Show progress elements
+    document.getElementById('progress-container').style.display = 'block';
+    document.getElementById('scan-summary').style.display = 'block';
+    
+    // Initialize progress bar
+    updateProgress(0, total);
+    
+    // Start timer
+    scanStartTime = Date.now();
+    if (intervalId) clearInterval(intervalId);
+    intervalId = setInterval(updateTimer, 1000);
+}
+
+function updateScanProgress(result) {
+    scannedDomains++;
+    
+    // Update active/inactive counters
+    if (result.status === 'ACTIVE') {
+        activeDomains++;
+    } else {
+        inactiveDomains++;
+    }
+    
+    // Update vulnerabilities counter
+    if (result.vulnerabilities) {
+        totalVulnerabilities += result.vulnerabilities.length;
+    }
+    
+    // Update progress display
+    updateProgress(scannedDomains, totalDomains);
+    
+    // Check if scan is complete
+    if (scannedDomains >= totalDomains) {
+        clearInterval(intervalId);
+        appendToTerminal('scan-terminal', `\nScan completed in ${document.getElementById('scan-time').textContent.replace('Elapsed time: ', '')}`, 'text-success');
+        appendToTerminal('scan-terminal', `Found ${activeDomains} active domains, ${inactiveDomains} inactive domains, and ${totalVulnerabilities} potential vulnerabilities.`, 'text-success');
+    }
+}
+
+function getScanOptions() {
+    const scanOptions = [];
+    if (document.getElementById('scan-cves').checked) scanOptions.push('cves');
+    if (document.getElementById('scan-vulns').checked) scanOptions.push('vulnerabilities');
+    if (document.getElementById('scan-misconfig').checked) scanOptions.push('misconfiguration');
+    if (document.getElementById('scan-exposures').checked) scanOptions.push('exposures');
+    if (document.getElementById('scan-tech').checked) scanOptions.push('technologies');
+    if (document.getElementById('scan-custom').checked) scanOptions.push('custom-templates');
+    
+    return scanOptions;
+}
+
+function getSeverityLevels() {
+    const severityLevels = [];
+    if (document.getElementById('severity-critical').checked) severityLevels.push('critical');
+    if (document.getElementById('severity-high').checked) severityLevels.push('high');
+    if (document.getElementById('severity-medium').checked) severityLevels.push('medium');
+    if (document.getElementById('severity-low').checked) severityLevels.push('low');
+    
+    return severityLevels;
+}
+
+function scanDomain() {
+    const domain = document.getElementById('single-domain-input').value.trim();
+    if (!domain) {
+        alert('Please enter a domain to scan');
+        return;
+    }
+    
+    // Get scan options
+    const scanOptions = getScanOptions();
+    
+    // Get severity levels
+    const severityLevels = getSeverityLevels();
+    
+    // Validate that at least one option and severity is selected
+    if (scanOptions.length === 0) {
+        alert('Please select at least one scan option');
+        return;
+    }
+    
+    if (severityLevels.length === 0) {
+        alert('Please select at least one severity level');
+        return;
+    }
+    
+    clearTerminal('scan-terminal');
+    appendToTerminal('scan-terminal', `Starting scan for ${domain}...`);
+    appendToTerminal('scan-terminal', `Options: ${scanOptions.join(', ')}`);
+    appendToTerminal('scan-terminal', `Severity levels: ${severityLevels.join(', ')}`);
+    
+    // Start progress tracking
+    startScanProgress(1);
+    
+    // Make AJAX request to backend
+    fetch('/scan', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `single_domain=${encodeURIComponent(domain)}&scan_options=${encodeURIComponent(scanOptions.join(','))}&severity_levels=${encodeURIComponent(severityLevels.join(','))}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            appendToTerminal('scan-terminal', `\nError: ${data.error}`, 'text-danger');
+            if (data.installation_guide) {
+                appendToTerminal('scan-terminal', `Installation guide: ${data.installation_guide}`, 'text-info');
+            }
+            updateScanProgress({status: 'INACTIVE', vulnerabilities: []});
+            return;
+        }
+        
+        if (data.nuclei_available === false) {
+            appendToTerminal('scan-terminal', `\nNote: Running in basic scan mode. Install Nuclei for more thorough scanning capabilities.`, 'text-warning');
+        }
+        
+        appendToTerminal('scan-terminal', `\nScan completed for ${data.domain}`);
+        appendToTerminal('scan-terminal', `Status: ${data.status}`);
+        appendToTerminal('scan-terminal', `Technologies detected: ${data.technologies.join(', ') || 'None'}`);
+        
+        if (data.vulnerabilities && data.vulnerabilities.length > 0) {
+            appendToTerminal('scan-terminal', `\nVulnerabilities found: ${data.vulnerabilities.length}`, 'text-danger');
+            data.vulnerabilities.forEach(vuln => {
+                appendToTerminal('scan-terminal', ` - ${vuln}`, 'text-warning');
+            });
+            
+            // If domain has 403 errors, suggest API bypass
+            if (data.has_403_error) {
+                appendToTerminal('scan-terminal', `\n403 Forbidden error detected. Consider using the API Endpoint Bypass tool:`, 'text-info');
+                appendToTerminal('scan-terminal', `<a href="/api-bypass?domain=https://${encodeURIComponent(data.domain)}" class="btn btn-sm btn-info mt-2">Try API Endpoint Bypass</a>`, '');
+            }
+            
+            // Add view details button
+            appendToTerminal('scan-terminal', `\n<a href="/domain/${data.domain_id}" class="btn btn-sm btn-primary mt-2">View Details in Domain Info</a>`, '');
+        } else {
+            appendToTerminal('scan-terminal', '\nNo vulnerabilities detected');
+        }
+        
+        // Update progress
+        updateScanProgress(data);
+    })
+    .catch(error => {
+        appendToTerminal('scan-terminal', `Error during scan: ${error}`, 'text-danger');
+        updateScanProgress({status: 'INACTIVE', vulnerabilities: []});
+    });
+}
+
+function scanDomainList() {
+    const domainList = document.getElementById('domain-list-input').value.trim();
+    if (!domainList) {
+        alert('Please enter domains to scan');
+        return;
+    }
+    
+    const domains = domainList.split('\n').filter(d => d.trim());
+    if (domains.length === 0) {
+        alert('Please enter at least one valid domain');
+        return;
+    }
+    
+    // Get scan options and severity levels if using same options
+    let scanOptions = [];
+    let severityLevels = [];
+    
+    if (document.getElementById('use-same-options').checked) {
+        scanOptions = getScanOptions();
+        severityLevels = getSeverityLevels();
+        
+        // Validate that at least one option and severity is selected
+        if (scanOptions.length === 0) {
+            alert('Please select at least one scan option');
+            return;
+        }
+        
+        if (severityLevels.length === 0) {
+            alert('Please select at least one severity level');
+            return;
+        }
+    } else {
+        // Default options if not using the same
+        scanOptions = ['cves', 'vulnerabilities', 'misconfiguration', 'exposures', 'technologies'];
+        severityLevels = ['critical', 'high', 'medium'];
+    }
+    
+    clearTerminal('scan-terminal');
+    appendToTerminal('scan-terminal', `Starting scan for ${domains.length} domains...`);
+    appendToTerminal('scan-terminal', `Options: ${scanOptions.join(', ')}`);
+    appendToTerminal('scan-terminal', `Severity levels: ${severityLevels.join(', ')}`);
+    
+    // Start progress tracking
+    startScanProgress(domains.length);
+    
+    fetch('/scan', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `domain_list=${encodeURIComponent(domainList)}&scan_options=${encodeURIComponent(scanOptions.join(','))}&severity_levels=${encodeURIComponent(severityLevels.join(','))}`
+    })
+    .then(response => response.json())
+    .then(results => {
+        appendToTerminal('scan-terminal', `\nReceived results for ${results.length} domains`);
+        
+        if (results.length > 0 && results[0].nuclei_available === false) {
+            appendToTerminal('scan-terminal', `\nNote: Running in basic scan mode. Install Nuclei for more thorough scanning capabilities.`, 'text-warning');
+        }
+        
+        results.forEach((data, index) => {
+            appendToTerminal('scan-terminal', `\n--- ${data.domain} (${index + 1}/${results.length}) ---`);
+            appendToTerminal('scan-terminal', `Status: ${data.status}`);
+            appendToTerminal('scan-terminal', `Technologies: ${data.technologies.join(', ') || 'None'}`);
+            
+            if (data.vulnerabilities && data.vulnerabilities.length > 0) {
+                appendToTerminal('scan-terminal', `Vulnerabilities found: ${data.vulnerabilities.length}`, 'text-danger');
+                data.vulnerabilities.forEach(vuln => {
+                    appendToTerminal('scan-terminal', ` - ${vuln}`, 'text-warning');
+                });
+                
+                // If domain has 403 errors, suggest API bypass
+                if (data.has_403_error) {
+                    appendToTerminal('scan-terminal', `403 Forbidden error detected. Consider using the API Endpoint Bypass tool.`, 'text-info');
+                }
+                
+                // Add view details button
+                if (data.domain_id) {
+                    appendToTerminal('scan-terminal', `<a href="/domain/${data.domain_id}" class="btn btn-sm btn-primary mt-1">View Details</a>`, '');
+                }
+            } else {
+                appendToTerminal('scan-terminal', 'No vulnerabilities detected');
+            }
+            
+            // Update progress for each domain
+            updateScanProgress(data);
+        });
+    })
+    .catch(error => {
+        appendToTerminal('scan-terminal', `Error during scan: ${error}`, 'text-danger');
+        // Mark all as scanned with error
+        for (let i = scannedDomains; i < totalDomains; i++) {
+            updateScanProgress({status: 'INACTIVE', vulnerabilities: []});
+        }
+    });
+}
+</script>
+{% endblock %}

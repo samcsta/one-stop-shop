@@ -1,0 +1,220 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="dashboard-header d-flex justify-content-between align-items-center mb-4">
+    <h1 class="dashboard-title">Dashboard</h1>
+    <div>
+        <a href="{{ url_for('scanner_page') }}" class="btn btn-primary">
+            <i class="fas fa-search mr-2"></i>New Scan
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-3">
+        <div class="card mb-4">
+            <div class="stat-card bg-primary">
+                <div class="stat-value">{{ total_domains }}</div>
+                <div class="stat-title">Total Domains</div>
+                <div class="stat-icon">
+                    <i class="fas fa-globe"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-4">
+            <div class="stat-card bg-success">
+                <div class="stat-value">{{ active_domains }}</div>
+                <div class="stat-title">Active Domains</div>
+                <div class="stat-icon">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-4">
+            <div class="stat-card bg-warning">
+                <div class="stat-value">{{ inactive_domains }}</div>
+                <div class="stat-title">Inactive Domains</div>
+                <div class="stat-icon">
+                    <i class="fas fa-times-circle"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card mb-4">
+            <div class="stat-card bg-danger">
+                <div class="stat-value">{{ total_vulnerabilities }}</div>
+                <div class="stat-title">Vulnerabilities</div>
+                <div class="stat-icon">
+                    <i class="fas fa-bug"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Vulnerabilities by Severity</h5>
+                <i class="fas fa-chart-pie text-primary"></i>
+            </div>
+            <div class="card-body">
+                <canvas id="severityChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Domains by Status</h5>
+                <i class="fas fa-chart-bar text-primary"></i>
+            </div>
+            <div class="card-body">
+                <canvas id="statusChart"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Recent Vulnerabilities</h5>
+                <i class="fas fa-shield-alt text-primary"></i>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>Domain</th>
+                                <th>Title</th>
+                                <th>Severity</th>
+                                <th>Date Discovered</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for vuln in recent_vulnerabilities %}
+                            <tr>
+                                <td><a href="{{ url_for('domain_details', id=vuln.domain_id) }}" class="text-primary">{{ vuln.domain.url }}</a></td>
+                                <td>{{ vuln.title }}</td>
+                                <td class="severity-{{ vuln.severity|lower }}">{{ vuln.severity }}</td>
+                                <td>{{ vuln.date_discovered.strftime('%Y-%m-%d %H:%M') }}</td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Severity chart
+        var severityCtx = document.getElementById('severityChart').getContext('2d');
+        var severityChart = new Chart(severityCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Critical', 'High', 'Medium', 'Low'],
+                datasets: [{
+                    data: [
+                        {{ severity_counts.CRITICAL }},
+                        {{ severity_counts.HIGH }},
+                        {{ severity_counts.MEDIUM }},
+                        {{ severity_counts.LOW }}
+                    ],
+                    backgroundColor: [
+                        '#9c27b0',  // Critical
+                        '#ff5c75',  // High
+                        '#ffbc42',  // Medium
+                        '#3ec1d3'   // Low
+                    ],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '70%',
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 20,
+                            boxWidth: 12
+                        }
+                    },
+                    title: {
+                        display: false
+                    }
+                }
+            }
+        });
+        
+        // Status chart
+        var statusCtx = document.getElementById('statusChart').getContext('2d');
+        var statusChart = new Chart(statusCtx, {
+            type: 'bar',
+            data: {
+                labels: ['New', 'In Progress', 'Finished', 'False Alarm'],
+                datasets: [{
+                    label: 'Domains by Status',
+                    data: [
+                        {{ domains_by_status['NEW'] }},
+                        {{ domains_by_status['IN PROGRESS'] }},
+                        {{ domains_by_status['FINISHED'] }},
+                        {{ domains_by_status['FALSE ALARM'] }}
+                    ],
+                    backgroundColor: [
+                        '#2e5bff',  // New
+                        '#ffbc42',  // In Progress
+                        '#44c97b',  // Finished
+                        '#ff5c75'   // False Alarm
+                    ],
+                    borderWidth: 0,
+                    borderRadius: 5
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        grid: {
+                            display: true,
+                            drawBorder: false,
+                            color: '#f5f5f5'
+                        },
+                        ticks: {
+                            stepSize: 1
+                        }
+                    },
+                    x: {
+                        grid: {
+                            display: false,
+                            drawBorder: false
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        display: false
+                    }
+                }
+            }
+        });
+    });
+</script>
+{% endblock %}
