@@ -149,9 +149,18 @@
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-bug mr-2 text-primary"></i>Vulnerabilities</h5>
-                <span class="badge badge-{{ 'success' if domain.vulnerabilities|length == 0 else 'danger' }}">
-                    {{ domain.vulnerabilities|length }} Found
-                </span>
+                <div>
+                    <span class="badge badge-{{ 'success' if domain.vulnerabilities|length == 0 else 'danger' }} mr-2">
+                        {{ domain.vulnerabilities|length }} Found
+                    </span>
+                    <!-- Show confirmed/dismissed counts -->
+                    <span class="badge badge-success mr-1" title="Confirmed true positives">
+                        <i class="fas fa-check"></i> {{ domain.vulnerabilities|selectattr('status', 'equalto', 'CONFIRMED')|list|length }}
+                    </span>
+                    <span class="badge badge-secondary" title="Dismissed false positives">
+                        <i class="fas fa-times"></i> {{ domain.vulnerabilities|selectattr('status', 'equalto', 'DISMISSED')|list|length }}
+                    </span>
+                </div>
             </div>
             <div class="card-body p-0">
                 {% if domain.vulnerabilities %}
@@ -161,6 +170,7 @@
                             <tr>
                                 <th>Title</th>
                                 <th>Severity</th>
+                                <th>Status</th>
                                 <th>CWE/CVE</th>
                                 <th>Location</th>
                                 <th>Date</th>
@@ -173,6 +183,15 @@
                                 <td>{{ vuln.title }}</td>
                                 <td>
                                     <span class="severity-{{ vuln.severity|lower }}">{{ vuln.severity }}</span>
+                                </td>
+                                <td>
+                                    {% if vuln.status == 'CONFIRMED' %}
+                                    <span class="badge badge-success">Confirmed</span>
+                                    {% elif vuln.status == 'DISMISSED' %}
+                                    <span class="badge badge-secondary">Dismissed</span>
+                                    {% else %}
+                                    <span class="badge badge-warning">Unclassified</span>
+                                    {% endif %}
                                 </td>
                                 <td>
                                     {% if vuln.cwe %}CWE: {{ vuln.cwe }}{% endif %}
@@ -241,12 +260,39 @@
                                                 
                                                 <div class="form-group">
                                                     <label><strong>Evidence</strong></label>
-                                                    <pre class="bg-dark text-light p-3 rounded"><code>{{ vuln.evidence or 'No evidence provided' }}</code></pre>
+                                                    <pre class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow-y: auto;"><code>{{ vuln.evidence or 'No evidence provided' }}</code></pre>
                                                 </div>
                                                 
                                                 <div class="form-group">
                                                     <label><strong>Discovery Date</strong></label>
                                                     <p>{{ vuln.date_discovered.strftime('%Y-%m-%d %H:%M') }}</p>
+                                                </div>
+                                                
+                                                <!-- Vulnerability Classification Controls -->
+                                                <div class="form-group">
+                                                    <label><strong>Classification</strong></label>
+                                                    <div class="d-flex mb-2">
+                                                        <form action="{{ url_for('classify_vulnerability_route', id=vuln.id) }}" method="post" class="mr-2">
+                                                            <input type="hidden" name="is_true_positive" value="true">
+                                                            <button type="submit" class="btn {{ 'btn-success' if vuln.status == 'CONFIRMED' else 'btn-outline-success' }}">
+                                                                <i class="fas fa-check mr-1"></i>Confirm (True Positive)
+                                                            </button>
+                                                        </form>
+                                                        <form action="{{ url_for('classify_vulnerability_route', id=vuln.id) }}" method="post">
+                                                            <input type="hidden" name="is_true_positive" value="false">
+                                                            <button type="submit" class="btn {{ 'btn-danger' if vuln.status == 'DISMISSED' else 'btn-outline-danger' }}">
+                                                                <i class="fas fa-times mr-1"></i>Dismiss (False Positive)
+                                                            </button>
+                                                        </form>
+                                                    </div>
+                                                    {% if vuln.status %}
+                                                    <div class="alert alert-{{ 'success' if vuln.status == 'CONFIRMED' else 'secondary' }} mt-2">
+                                                        {{ 'Confirmed as True Positive' if vuln.status == 'CONFIRMED' else 'Dismissed as False Positive' }}
+                                                        {% if vuln.last_updated %}
+                                                        <small class="d-block mt-1">Updated: {{ vuln.last_updated.strftime('%Y-%m-%d %H:%M') }}</small>
+                                                        {% endif %}
+                                                    </div>
+                                                    {% endif %}
                                                 </div>
                                                 
                                                 <div class="text-right">
@@ -270,6 +316,134 @@
                     <a href="{{ url_for('scanner_page') }}?domain={{ domain.url }}" class="btn btn-primary">
                         <i class="fas fa-sync-alt mr-1"></i>Run a new scan
                     </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Discovered Endpoints Card (New) -->
+        <div class="card mb-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-sitemap mr-2 text-primary"></i>Discovered Endpoints</h5>
+                <span class="badge badge-info">{{ domain.endpoints|length if domain.endpoints else 0 }} Found</span>
+            </div>
+            <div class="card-body p-0">
+                {% if domain.endpoints and domain.endpoints|length > 0 %}
+                <div class="table-responsive">
+                    <table class="table mb-0">
+                        <thead>
+                            <tr>
+                                <th>Endpoint</th>
+                                <th>Status</th>
+                                <th>Content Type</th>
+                                <th>Discovery Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for endpoint in domain.endpoints %}
+                            <tr class="{{ 'table-success' if endpoint.is_interesting else '' }}">
+                                <td>
+                                    <a href="{{ endpoint.url }}" target="_blank" rel="noopener noreferrer">
+                                        {{ endpoint.path }} <i class="fas fa-external-link-alt fa-sm"></i>
+                                    </a>
+                                </td>
+                                <td>
+                                    {% if endpoint.status_code == 200 %}
+                                    <span class="badge badge-success">200 OK</span>
+                                    {% elif endpoint.status_code == 403 %}
+                                    <span class="badge badge-warning">403 Forbidden</span>
+                                    {% elif endpoint.status_code == 401 %}
+                                    <span class="badge badge-warning">401 Unauthorized</span>
+                                    {% elif endpoint.status_code == 404 %}
+                                    <span class="badge badge-secondary">404 Not Found</span>
+                                    {% elif endpoint.status_code %}
+                                    <span class="badge badge-info">{{ endpoint.status_code }}</span>
+                                    {% else %}
+                                    <span class="badge badge-secondary">Unknown</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ endpoint.content_type or 'Unknown' }}</td>
+                                <td>{{ endpoint.date_discovered.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm btn-info" data-toggle="modal" data-target="#endpoint-modal-{{ endpoint.id }}">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <!-- Endpoint Details Modal -->
+                            <div class="modal fade" id="endpoint-modal-{{ endpoint.id }}" tabindex="-1" role="dialog" aria-hidden="true">
+                                <div class="modal-dialog" role="document">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">{{ endpoint.path }}</h5>
+                                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                <span aria-hidden="true">&times;</span>
+                                            </button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <div class="mb-3">
+                                                <label class="font-weight-bold">Full URL:</label>
+                                                <div>
+                                                    <a href="{{ endpoint.url }}" target="_blank" rel="noopener noreferrer">
+                                                        {{ endpoint.url }} <i class="fas fa-external-link-alt fa-sm"></i>
+                                                    </a>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="row mb-3">
+                                                <div class="col-md-6">
+                                                    <label class="font-weight-bold">Method:</label>
+                                                    <div>{{ endpoint.method }}</div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="font-weight-bold">Status Code:</label>
+                                                    <div>{{ endpoint.status_code or 'Unknown' }}</div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="mb-3">
+                                                <label class="font-weight-bold">Content Type:</label>
+                                                <div>{{ endpoint.content_type or 'Unknown' }}</div>
+                                            </div>
+                                            
+                                            <div class="mb-3">
+                                                <label class="font-weight-bold">Discovery Date:</label>
+                                                <div>{{ endpoint.date_discovered.strftime('%Y-%m-%d %H:%M') }}</div>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label class="font-weight-bold">Notes:</label>
+                                                <textarea class="form-control" rows="3">{{ endpoint.notes or '' }}</textarea>
+                                            </div>
+                                            
+                                            <div class="form-check mb-3">
+                                                <input class="form-check-input" type="checkbox" id="endpointInteresting-{{ endpoint.id }}" {{ 'checked' if endpoint.is_interesting else '' }}>
+                                                <label class="form-check-label" for="endpointInteresting-{{ endpoint.id }}">
+                                                    Mark as interesting endpoint
+                                                </label>
+                                            </div>
+                                            
+                                            <div class="text-right">
+                                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                                                <button type="button" class="btn btn-primary">Save Changes</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-sitemap fa-3x text-muted mb-3"></i>
+                    <h5>No endpoints discovered</h5>
+                    <p class="text-muted">Run a scan to discover endpoints on this domain</p>
                 </div>
                 {% endif %}
             </div>
@@ -348,6 +522,35 @@
                     {% else %}
                         <p class="text-muted">No screenshots uploaded yet.</p>
                     {% endif %}
+                </div>
+            </div>
+        </div>
+        
+        <!-- Scan Log Card (New) -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-history mr-2 text-primary"></i>Scan Log</h5>
+            </div>
+            <div class="card-body p-0">
+                <div class="list-group list-group-flush" id="scan-log">
+                    <!-- This would be populated from the database with scan history -->
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <span class="font-weight-bold">Latest Scan</span>
+                            <small class="text-muted">{{ domain.last_scanned.strftime('%Y-%m-%d %H:%M') }}</small>
+                        </div>
+                        <div class="mt-2">
+                            <span class="badge badge-{{ 'success' if domain.status == 'ACTIVE' else 'danger' }} mr-2">Status: {{ domain.status }}</span>
+                            <span class="badge badge-info mr-2">Vulnerabilities: {{ domain.vulnerabilities|length }}</span>
+                            <span class="badge badge-secondary">Technologies: {{ domain.technologies|length }}</span>
+                        </div>
+                    </div>
+                    <!-- Add more scan history items here if available -->
+                </div>
+                <div class="p-3 text-center">
+                    <a href="{{ url_for('scanner_page') }}?domain={{ domain.url }}" class="btn btn-primary btn-sm">
+                        <i class="fas fa-sync-alt mr-1"></i>Run New Scan
+                    </a>
                 </div>
             </div>
         </div>

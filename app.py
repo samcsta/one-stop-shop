@@ -2,11 +2,15 @@ import os
 import json
 import subprocess
 import shutil
+import random
+import time
+import threading
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask_socketio import SocketIO
 from werkzeug.utils import secure_filename
 from config import Config
-from models import db, Domain, Technology, Vulnerability, Screenshot
+from models import db, Domain, Technology, Vulnerability, Endpoint, Screenshot
 import utils.scanner as scanner
 import utils.api_bypass as api_bypass
 
@@ -16,6 +20,10 @@ app.config.from_object(Config)
 # Initialize database
 db.init_app(app)
 
+# Initialize Socket.IO
+socketio = SocketIO(app)
+scanner.init_socketio(socketio)
+
 # Ensure upload and wordlists directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['WORDLISTS_FOLDER'], exist_ok=True)
@@ -23,16 +31,8 @@ os.makedirs(app.config['WORDLISTS_FOLDER'], exist_ok=True)
 # Custom template directories
 os.makedirs(os.path.join(os.getcwd(), 'custom-templates'), exist_ok=True)
 
-def check_nuclei_installation():
-    """Check if Nuclei is installed and accessible"""
-    nuclei_cmd = scanner.check_nuclei_available()
-    return nuclei_cmd is not None
-
-# Initialize nuclei availability check
-nuclei_available = check_nuclei_installation()
-
-@app.before_first_request
-def create_tables():
+# Instead of @app.before_first_request, we'll create all tables at startup
+with app.app_context():
     db.create_all()
 
 # Dashboard route
@@ -154,6 +154,9 @@ def delete_domain(id):
     
     Screenshot.query.filter_by(domain_id=id).delete()
     
+    # Delete associated endpoints
+    Endpoint.query.filter_by(domain_id=id).delete()
+    
     # Store the domain URL for the flash message
     domain_url = domain.url
     
@@ -203,12 +206,6 @@ def workspace():
     domains = Domain.query.filter_by(assigned_to="Current User").all()
     return render_template('workspace.html', domains=domains)
 
-# Check Nuclei availability
-@app.route('/check-nuclei')
-def check_nuclei():
-    nuclei_cmd = scanner.check_nuclei_available()
-    return jsonify({"available": nuclei_cmd is not None, "command": nuclei_cmd})
-
 # Scanner routes
 @app.route('/scanner')
 def scanner_page():
@@ -222,23 +219,33 @@ def scanner_page():
 
 @app.route('/scan', methods=['POST'])
 def scan():
-    nuclei_cmd = scanner.check_nuclei_available()
+    # Generate a unique scan ID for this request
+    scan_id = f"scan_{int(time.time())}_{random.randint(1000, 9999)}"
+    
+    # Check if this is a fast scan request
+    fast_scan = request.form.get('fast_scan', 'false').lower() == 'true'
     
     if 'single_domain' in request.form:
-        domain_url = request.form['single_domain']
-        scan_options = request.form.get('scan_options', 'cves,vulnerabilities,misconfiguration,exposures,technologies')
-        severity_levels = request.args.get('severity_levels', 'critical,high,medium')
+        domain_url = request.form['single_domain'].strip()
         
-        # Call the scanner utility with parameters
-        result = scanner.scan_domain(
-            domain_url, 
-            scan_options=scan_options.split(','),
-            severity_levels=severity_levels.split(',')
-        )
+        if fast_scan:
+            # Use the optimized fast scan function
+            result = scanner.scan_domain_fast(domain_url, scan_id=scan_id)
+        else:
+            # Use original scan with custom options
+            scan_options = request.form.get('scan_options', 'cves,vulnerabilities,misconfiguration,exposures,technologies')
+            severity_levels = request.form.get('severity_levels', 'critical,high,medium')
+            
+            # Call the scanner utility with parameters
+            result = scanner.scan_domain(
+                domain_url, 
+                scan_id=scan_id,
+                scan_options=scan_options.split(','),
+                severity_levels=severity_levels.split(',')
+            )
         
         # Check if domain has 403 errors (for API bypass suggestion)
         result['has_403_error'] = any('403' in vuln.lower() for vuln in result.get('vulnerabilities', []))
-        result['nuclei_available'] = nuclei_cmd is not None
         
         # Add domain ID for the link to details
         domain = Domain.query.filter_by(url=result['domain']).first()
@@ -249,33 +256,91 @@ def scan():
     
     elif 'domain_list' in request.form:
         domains = request.form['domain_list'].split('\n')
-        scan_options = request.form.get('scan_options', 'cves,vulnerabilities,misconfiguration,exposures,technologies')
-        severity_levels = request.form.get('severity_levels', 'critical,high,medium')
+        batch_size = int(request.form.get('batch_size', '10'))
         
-        results = []
-        for domain in domains:
-            domain = domain.strip()
-            if domain:
-                # Scan each domain
-                result = scanner.scan_domain(
-                    domain,
-                    scan_options=scan_options.split(','),
-                    severity_levels=severity_levels.split(',')
-                )
-                
-                # Check if domain has 403 errors
-                result['has_403_error'] = any('403' in vuln.lower() for vuln in result.get('vulnerabilities', []))
-                result['nuclei_available'] = nuclei_cmd is not None
-                
-                # Add domain ID for the link to details
-                domain_obj = Domain.query.filter_by(url=result['domain']).first()
-                if domain_obj:
-                    result['domain_id'] = domain_obj.id
-                
-                results.append(result)
-        return jsonify(results)
+        if fast_scan:
+            # For fast scanning of multiple domains
+            scan_options, severity_levels = scanner.get_optimized_scan_options(full_scan=False)
+        else:
+            # Use custom options
+            scan_options = request.form.get('scan_options', 'cves,vulnerabilities,misconfiguration,exposures,technologies').split(',')
+            severity_levels = request.form.get('severity_levels', 'critical,high,medium').split(',')
+        
+        # Filter out empty domains
+        domains = [d.strip() for d in domains if d.strip()]
+        
+        # Start the scanning process in a background thread if there are many domains
+        if len(domains) > 5:
+            def run_bulk_scan():
+                with app.app_context():
+                    scanner.scan_domain_batch(domains, batch_size, fast_scan)
+            
+            thread = threading.Thread(target=run_bulk_scan)
+            thread.daemon = True
+            thread.start()
+            
+            return jsonify({
+                "message": f"Started bulk scan of {len(domains)} domains",
+                "batch_size": batch_size,
+                "scan_id": scan_id
+            })
+        else:
+            # For small number of domains, process them directly
+            results = []
+            for i, domain in enumerate(domains):
+                domain = domain.strip()
+                if domain:
+                    # Generate a separate scan ID for each domain
+                    domain_scan_id = f"{scan_id}_{i}"
+                    
+                    # Scan each domain
+                    result = scanner.scan_domain(
+                        domain,
+                        scan_id=domain_scan_id,
+                        scan_options=scan_options,
+                        severity_levels=severity_levels
+                    )
+                    
+                    # Check if domain has 403 errors
+                    result['has_403_error'] = any('403' in vuln.lower() for vuln in result.get('vulnerabilities', []))
+                    
+                    # Add domain ID for the link to details
+                    domain_obj = Domain.query.filter_by(url=result['domain']).first()
+                    if domain_obj:
+                        result['domain_id'] = domain_obj.id
+                    
+                    results.append(result)
+            return jsonify(results)
     
     return jsonify({"error": "No domain provided"}), 400
+
+# Add new route for bulk scanning
+@app.route('/bulk-scan', methods=['POST'])
+def bulk_scan():
+    """Process a bulk scan of multiple domains with optimized settings"""
+    data = request.get_json()
+    
+    if not data or 'domains' not in data:
+        return jsonify({"error": "No domains provided"}), 400
+    
+    domains = data['domains']
+    batch_size = data.get('batch_size', 10)  # Default to 10 domains per batch
+    full_scan = data.get('full_scan', False)  # Default to fast scan
+    
+    # Start the scanning process in a background thread to avoid blocking
+    def run_bulk_scan():
+        with app.app_context():
+            scanner.scan_domain_batch(domains, batch_size, full_scan)
+    
+    thread = threading.Thread(target=run_bulk_scan)
+    thread.daemon = True
+    thread.start()
+    
+    return jsonify({
+        "message": f"Started bulk scan of {len(domains)} domains",
+        "batch_size": batch_size,
+        "full_scan": full_scan
+    })
 
 # API Endpoint Bypass routes
 @app.route('/api-bypass')
@@ -314,17 +379,14 @@ def run_bypass():
 # Templates management
 @app.route('/templates', methods=['GET', 'POST'])
 def templates():
-    nuclei_cmd = scanner.check_nuclei_available()
+    nuclei_cmd = 'nuclei'  # Assuming nuclei is installed
     
     if request.method == 'POST':
         if 'action' in request.form:
             if request.form['action'] == 'update':
                 try:
-                    if nuclei_cmd:
-                        subprocess.run([nuclei_cmd, '-update-templates'], check=True, capture_output=True)
-                        flash('Nuclei templates updated successfully!', 'success')
-                    else:
-                        flash('Nuclei is not installed or not accessible', 'danger')
+                    subprocess.run([nuclei_cmd, '-update-templates'], check=True, capture_output=True)
+                    flash('Nuclei templates updated successfully!', 'success')
                 except Exception as e:
                     flash(f'Error updating templates: {str(e)}', 'danger')
                     
@@ -353,25 +415,24 @@ def templates():
     template_categories = []
     custom_templates = []
     
-    if nuclei_cmd:
-        try:
-            # Get built-in template categories
-            output = subprocess.run([nuclei_cmd, '-tl'], check=False, capture_output=True, text=True)
-            for line in output.stdout.splitlines():
-                if line.strip() and not line.startswith(('[', '-')) and not line.strip() == "TEMPLATES":
-                    template_categories.append(line.strip())
-            
-            # Get custom templates
-            custom_dir = os.path.join(os.getcwd(), 'custom-templates')
-            if os.path.exists(custom_dir):
-                custom_templates = [f for f in os.listdir(custom_dir) if f.endswith(('.yaml', '.yml'))]
-        except Exception as e:
-            flash(f'Error getting template list: {str(e)}', 'warning')
+    try:
+        # Get built-in template categories
+        output = subprocess.run([nuclei_cmd, '-tl'], check=False, capture_output=True, text=True)
+        for line in output.stdout.splitlines():
+            if line.strip() and not line.startswith(('[', '-')) and not line.strip() == "TEMPLATES":
+                template_categories.append(line.strip())
+        
+        # Get custom templates
+        custom_dir = os.path.join(os.getcwd(), 'custom-templates')
+        if os.path.exists(custom_dir):
+            custom_templates = [f for f in os.listdir(custom_dir) if f.endswith(('.yaml', '.yml'))]
+    except Exception as e:
+        flash(f'Error getting template list: {str(e)}', 'warning')
     
     return render_template('templates.html', 
                           template_categories=template_categories,
                           custom_templates=custom_templates,
-                          nuclei_available=(nuclei_cmd is not None))
+                          nuclei_available=True)
 
 # Scan link (for convenient scan from domain details)
 @app.route('/scan-link/<int:domain_id>')
@@ -432,6 +493,52 @@ def update_vulnerability(id):
     flash('Vulnerability updated successfully!', 'success')
     return redirect(url_for('domain_details', id=vuln.domain_id))
 
+# Add new route for vulnerability classification
+@app.route('/vulnerability/<int:id>/classify', methods=['POST'])
+def classify_vulnerability_route(id):
+    """Allow analysts to classify a vulnerability as true or false positive"""
+    is_true_positive = request.form.get('is_true_positive', 'false').lower() == 'true'
+    
+    result = scanner.classify_vulnerability(id, is_true_positive)
+    
+    if result:
+        flash(f"Vulnerability classified as {'TRUE POSITIVE' if is_true_positive else 'FALSE POSITIVE'}", 'success')
+    else:
+        flash("Error classifying vulnerability", 'danger')
+    
+    # Redirect back to the domain details page
+    vuln = Vulnerability.query.get_or_404(id)
+    return redirect(url_for('domain_details', id=vuln.domain_id))
+
+# Endpoint management routes
+@app.route('/endpoint/<int:id>/delete', methods=['POST'])
+def delete_endpoint(id):
+    endpoint = Endpoint.query.get_or_404(id)
+    domain_id = endpoint.domain_id
+    
+    db.session.delete(endpoint)
+    db.session.commit()
+    
+    flash('Endpoint deleted successfully!', 'success')
+    return redirect(url_for('domain_details', id=domain_id))
+
+@app.route('/endpoint/<int:id>/update', methods=['POST'])
+def update_endpoint(id):
+    endpoint = Endpoint.query.get_or_404(id)
+    
+    if 'notes' in request.form:
+        endpoint.notes = request.form['notes']
+    
+    if 'is_interesting' in request.form:
+        endpoint.is_interesting = True
+    else:
+        endpoint.is_interesting = False
+    
+    db.session.commit()
+    
+    flash('Endpoint updated successfully!', 'success')
+    return redirect(url_for('domain_details', id=endpoint.domain_id))
+
 # Screenshot management
 @app.route('/screenshot/<int:id>/delete', methods=['POST'])
 def delete_screenshot(id):
@@ -462,8 +569,15 @@ def page_not_found(e):
 def server_error(e):
     return render_template('error.html', error_code=500, error_message="Server error"), 500
 
+# Socket.IO events
+@socketio.on('connect')
+def handle_connect():
+    print('Client connected')
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    print('Client disconnected')
+
 # Run the application
 if __name__ == '__main__':
-    with app.app_context():
-        db.create_all()
-    app.run(debug=True)
+    socketio.run(app, debug=True)

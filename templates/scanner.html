@@ -13,7 +13,7 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-search mr-2 text-primary"></i>Scan Single Domain</h5>
-                <span class="badge badge-primary" id="nuclei-status-badge" style="display: none;">Using Nuclei</span>
+                <span class="badge badge-primary" id="nuclei-status-badge">Nuclei Active</span>
             </div>
             <div class="card-body">
                 <form id="single-domain-form" onsubmit="scanDomain(); return false;">
@@ -27,6 +27,15 @@
                                    placeholder="example.com" value="{{ domain_to_scan }}" required>
                         </div>
                         <small class="form-text text-muted">Enter domain without http:// or https://</small>
+                    </div>
+                    
+                    <!-- Fast Scan Option -->
+                    <div class="form-group">
+                        <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" id="fast-scan" checked>
+                            <label class="custom-control-label" for="fast-scan">Fast Scan</label>
+                            <small class="form-text text-muted">Optimize for speed (only checks critical and high issues)</small>
+                        </div>
                     </div>
                     
                     <div class="form-group">
@@ -108,6 +117,13 @@
                         <label for="domain-list-input">Domain List:</label>
                         <textarea class="form-control" id="domain-list-input" rows="5" placeholder="example.com&#10;example.org&#10;example.net"></textarea>
                         <small class="form-text text-muted">Enter one domain per line, without http:// or https://</small>
+                    </div>
+                    
+                    <!-- Batch Size Option -->
+                    <div class="form-group">
+                        <label for="batch-size">Batch Size:</label>
+                        <input type="number" class="form-control" id="batch-size" value="10" min="1" max="50">
+                        <small class="form-text text-muted">Number of domains to scan at once (for multiple domains)</small>
                     </div>
                     
                     <div class="form-group">
@@ -204,6 +220,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.min.js"></script>
 <script>
 let scanStartTime = 0;
 let intervalId = null;
@@ -212,54 +229,56 @@ let scannedDomains = 0;
 let activeDomains = 0;
 let inactiveDomains = 0;
 let totalVulnerabilities = 0;
-let nucleiAvailable = false;
+let currentScanId = null;
 
-// Check if Nuclei is available when the page loads
-window.addEventListener('DOMContentLoaded', function() {
-    fetch('/check-nuclei')
-        .then(response => response.json())
-        .then(data => {
-            nucleiAvailable = data.available;
-            if (nucleiAvailable) {
-                document.getElementById('nuclei-status-badge').style.display = 'inline-block';
-            }
-            
-            // Auto-run scan if URL parameters indicate to do so
-            const urlParams = new URLSearchParams(window.location.search);
-            const autorun = urlParams.get('autorun');
-            
-            if (autorun === 'true' && document.getElementById('single-domain-input').value) {
-                // Set options based on URL parameters
-                const options = urlParams.get('options');
-                if (options) {
-                    const optionList = options.split(',');
-                    document.getElementById('scan-cves').checked = optionList.includes('cves');
-                    document.getElementById('scan-vulns').checked = optionList.includes('vulnerabilities');
-                    document.getElementById('scan-misconfig').checked = optionList.includes('misconfiguration');
-                    document.getElementById('scan-exposures').checked = optionList.includes('exposures');
-                    document.getElementById('scan-tech').checked = optionList.includes('technologies');
-                    document.getElementById('scan-custom').checked = optionList.includes('custom');
-                }
-                
-                // Set severity levels based on URL parameters
-                const severity = urlParams.get('severity');
-                if (severity) {
-                    const severityList = severity.split(',');
-                    document.getElementById('severity-critical').checked = severityList.includes('critical');
-                    document.getElementById('severity-high').checked = severityList.includes('high');
-                    document.getElementById('severity-medium').checked = severityList.includes('medium');
-                    document.getElementById('severity-low').checked = severityList.includes('low');
-                }
-                
-                // Start the scan
-                setTimeout(scanDomain, 500);
-            }
-        })
-        .catch(error => {
-            console.error('Error checking Nuclei availability:', error);
-        });
+// Connect to Socket.IO server for real-time updates
+const socket = io();
+
+// Handle scan updates
+socket.on('scan_update', function(data) {
+    // Only process messages for the current scan
+    if (currentScanId && data.scan_id.startsWith(currentScanId)) {
+        let messageClass = '';
+        
+        // Set message class based on status
+        switch(data.status) {
+            case 'error':
+                messageClass = 'text-danger';
+                break;
+            case 'warning':
+                messageClass = 'text-warning';
+                break;
+            case 'success':
+                messageClass = 'text-success';
+                break;
+            case 'info':
+                messageClass = 'text-info';
+                break;
+            case 'debug':
+                messageClass = 'text-muted small';
+                break;
+            case 'critical':
+                messageClass = 'severity-critical';
+                break;
+            case 'high':
+                messageClass = 'severity-high';
+                break;
+            case 'medium':
+                messageClass = 'severity-medium';
+                break;
+            case 'low':
+                messageClass = 'severity-low';
+                break;
+            default:
+                messageClass = '';
+        }
+        
+        // Add the message to the terminal
+        appendToTerminal('scan-terminal', data.message, messageClass);
+    }
 });
 
+// Update timer for displaying scan time
 function updateTimer() {
     const elapsedSeconds = Math.floor((Date.now() - scanStartTime) / 1000);
     const minutes = Math.floor(elapsedSeconds / 60);
@@ -267,6 +286,7 @@ function updateTimer() {
     document.getElementById('scan-time').textContent = `Elapsed time: ${minutes}m ${seconds}s`;
 }
 
+// Update progress bar and statistics
 function updateProgress(current, total) {
     const progressBar = document.getElementById('scan-progress-bar');
     const percent = Math.floor((current / total) * 100);
@@ -281,6 +301,7 @@ function updateProgress(current, total) {
     document.getElementById('vulnerabilities-found').textContent = totalVulnerabilities;
 }
 
+// Initialize progress tracking for a scan
 function startScanProgress(total) {
     // Reset counters
     totalDomains = total;
@@ -302,6 +323,7 @@ function startScanProgress(total) {
     intervalId = setInterval(updateTimer, 1000);
 }
 
+// Update progress when a domain scan completes
 function updateScanProgress(result) {
     scannedDomains++;
     
@@ -328,6 +350,7 @@ function updateScanProgress(result) {
     }
 }
 
+// Get selected scan options
 function getScanOptions() {
     const scanOptions = [];
     if (document.getElementById('scan-cves').checked) scanOptions.push('cves');
@@ -340,6 +363,7 @@ function getScanOptions() {
     return scanOptions;
 }
 
+// Get selected severity levels
 function getSeverityLevels() {
     const severityLevels = [];
     if (document.getElementById('severity-critical').checked) severityLevels.push('critical');
@@ -350,6 +374,7 @@ function getSeverityLevels() {
     return severityLevels;
 }
 
+// Scan a single domain
 function scanDomain() {
     const domain = document.getElementById('single-domain-input').value.trim();
     if (!domain) {
@@ -362,6 +387,9 @@ function scanDomain() {
     
     // Get severity levels
     const severityLevels = getSeverityLevels();
+    
+    // Check if fast scan is enabled
+    const fastScan = document.getElementById('fast-scan').checked;
     
     // Validate that at least one option and severity is selected
     if (scanOptions.length === 0) {
@@ -378,6 +406,10 @@ function scanDomain() {
     appendToTerminal('scan-terminal', `Starting scan for ${domain}...`);
     appendToTerminal('scan-terminal', `Options: ${scanOptions.join(', ')}`);
     appendToTerminal('scan-terminal', `Severity levels: ${severityLevels.join(', ')}`);
+    appendToTerminal('scan-terminal', `Fast scan: ${fastScan ? 'Enabled' : 'Disabled'}`);
+    
+    // Generate a unique scan ID for Socket.IO updates
+    currentScanId = 'scan_' + Date.now();
     
     // Start progress tracking
     startScanProgress(1);
@@ -388,29 +420,28 @@ function scanDomain() {
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: `single_domain=${encodeURIComponent(domain)}&scan_options=${encodeURIComponent(scanOptions.join(','))}&severity_levels=${encodeURIComponent(severityLevels.join(','))}`
+        body: `single_domain=${encodeURIComponent(domain)}&scan_options=${encodeURIComponent(scanOptions.join(','))}&severity_levels=${encodeURIComponent(severityLevels.join(','))}&fast_scan=${fastScan}`
     })
     .then(response => response.json())
     .then(data => {
         if (data.error) {
             appendToTerminal('scan-terminal', `\nError: ${data.error}`, 'text-danger');
-            if (data.installation_guide) {
-                appendToTerminal('scan-terminal', `Installation guide: ${data.installation_guide}`, 'text-info');
-            }
             updateScanProgress({status: 'INACTIVE', vulnerabilities: []});
             return;
         }
         
-        if (data.nuclei_available === false) {
-            appendToTerminal('scan-terminal', `\nNote: Running in basic scan mode. Install Nuclei for more thorough scanning capabilities.`, 'text-warning');
-        }
+        // Update progress
+        updateScanProgress(data);
         
-        appendToTerminal('scan-terminal', `\nScan completed for ${data.domain}`);
-        appendToTerminal('scan-terminal', `Status: ${data.status}`);
-        appendToTerminal('scan-terminal', `Technologies detected: ${data.technologies.join(', ') || 'None'}`);
+        // Summary of results
+        appendToTerminal('scan-terminal', `\n=== SCAN SUMMARY ===`, 'text-primary font-weight-bold');
+        appendToTerminal('scan-terminal', `Domain: ${data.domain}`, 'text-primary');
+        appendToTerminal('scan-terminal', `Status: ${data.status}`, data.status === 'ACTIVE' ? 'text-success' : 'text-danger');
+        appendToTerminal('scan-terminal', `Technologies: ${data.technologies.join(', ') || 'None'}`, 'text-info');
         
+        // Display vulnerabilities summary
         if (data.vulnerabilities && data.vulnerabilities.length > 0) {
-            appendToTerminal('scan-terminal', `\nVulnerabilities found: ${data.vulnerabilities.length}`, 'text-danger');
+            appendToTerminal('scan-terminal', `\nVulnerabilities found: ${data.vulnerabilities.length}`, 'text-danger font-weight-bold');
             data.vulnerabilities.forEach(vuln => {
                 appendToTerminal('scan-terminal', ` - ${vuln}`, 'text-warning');
             });
@@ -418,17 +449,21 @@ function scanDomain() {
             // If domain has 403 errors, suggest API bypass
             if (data.has_403_error) {
                 appendToTerminal('scan-terminal', `\n403 Forbidden error detected. Consider using the API Endpoint Bypass tool:`, 'text-info');
-                appendToTerminal('scan-terminal', `<a href="/api-bypass?domain=https://${encodeURIComponent(data.domain)}" class="btn btn-sm btn-info mt-2">Try API Endpoint Bypass</a>`, '');
+                appendToTerminal('scan-terminal', `<a href="/api-bypass?domain=${encodeURIComponent(data.domain)}" class="btn btn-sm btn-info mt-2">Try API Endpoint Bypass</a>`, '');
             }
-            
-            // Add view details button
-            appendToTerminal('scan-terminal', `\n<a href="/domain/${data.domain_id}" class="btn btn-sm btn-primary mt-2">View Details in Domain Info</a>`, '');
         } else {
-            appendToTerminal('scan-terminal', '\nNo vulnerabilities detected');
+            appendToTerminal('scan-terminal', '\nNo vulnerabilities detected', 'text-success');
         }
         
-        // Update progress
-        updateScanProgress(data);
+        // Display endpoints summary
+        if (data.endpoints && data.endpoints.length > 0) {
+            appendToTerminal('scan-terminal', `\nEndpoints discovered: ${data.endpoints.length}`, 'text-warning font-weight-bold');
+        }
+        
+        // Add view details button
+        if (data.domain_id) {
+            appendToTerminal('scan-terminal', `\n<a href="/domain/${data.domain_id}" class="btn btn-primary mt-2">View Complete Results in Domain Details</a>`, '');
+        }
     })
     .catch(error => {
         appendToTerminal('scan-terminal', `Error during scan: ${error}`, 'text-danger');
@@ -436,6 +471,7 @@ function scanDomain() {
     });
 }
 
+// Scan multiple domains
 function scanDomainList() {
     const domainList = document.getElementById('domain-list-input').value.trim();
     if (!domainList) {
@@ -444,10 +480,12 @@ function scanDomainList() {
     }
     
     const domains = domainList.split('\n').filter(d => d.trim());
-    if (domains.length === 0) {
-        alert('Please enter at least one valid domain');
-        return;
-    }
+    
+    // Get batch size
+    const batchSize = parseInt(document.getElementById('batch-size').value) || 10;
+    
+    // Check if fast scan is enabled
+    const fastScan = document.getElementById('fast-scan').checked;
     
     // Get scan options and severity levels if using same options
     let scanOptions = [];
@@ -477,6 +515,11 @@ function scanDomainList() {
     appendToTerminal('scan-terminal', `Starting scan for ${domains.length} domains...`);
     appendToTerminal('scan-terminal', `Options: ${scanOptions.join(', ')}`);
     appendToTerminal('scan-terminal', `Severity levels: ${severityLevels.join(', ')}`);
+    appendToTerminal('scan-terminal', `Fast scan: ${fastScan ? 'Enabled' : 'Disabled'}`);
+    appendToTerminal('scan-terminal', `Batch size: ${batchSize}`);
+    
+    // Generate a unique scan ID for Socket.IO updates
+    currentScanId = 'scan_' + Date.now();
     
     // Start progress tracking
     startScanProgress(domains.length);
@@ -486,42 +529,50 @@ function scanDomainList() {
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: `domain_list=${encodeURIComponent(domainList)}&scan_options=${encodeURIComponent(scanOptions.join(','))}&severity_levels=${encodeURIComponent(severityLevels.join(','))}`
+        body: `domain_list=${encodeURIComponent(domainList)}&scan_options=${encodeURIComponent(scanOptions.join(','))}&severity_levels=${encodeURIComponent(severityLevels.join(','))}&fast_scan=${fastScan}&batch_size=${batchSize}`
     })
     .then(response => response.json())
-    .then(results => {
-        appendToTerminal('scan-terminal', `\nReceived results for ${results.length} domains`);
-        
-        if (results.length > 0 && results[0].nuclei_available === false) {
-            appendToTerminal('scan-terminal', `\nNote: Running in basic scan mode. Install Nuclei for more thorough scanning capabilities.`, 'text-warning');
+    .then(data => {
+        // For large bulk scans, we only get a confirmation message
+        if (data.message && data.message.includes('Started bulk scan')) {
+            appendToTerminal('scan-terminal', `\n${data.message}`, 'text-info');
+            appendToTerminal('scan-terminal', `The scan is running in the background. Results will be available in the domains section when complete.`, 'text-info');
+            appendToTerminal('scan-terminal', `See scan progress in the VSCode terminal and in this window.`, 'text-info');
+            
+            // Connect to the socket for real-time updates
+            // currentScanId is already set
+            return;
         }
         
-        results.forEach((data, index) => {
-            appendToTerminal('scan-terminal', `\n--- ${data.domain} (${index + 1}/${results.length}) ---`);
-            appendToTerminal('scan-terminal', `Status: ${data.status}`);
-            appendToTerminal('scan-terminal', `Technologies: ${data.technologies.join(', ') || 'None'}`);
+        // For small number of domains, we get direct results
+        appendToTerminal('scan-terminal', `\nReceived results for ${data.length} domains`);
+        
+        data.forEach((result, index) => {
+            appendToTerminal('scan-terminal', `\n--- ${result.domain} (${index + 1}/${data.length}) ---`);
+            appendToTerminal('scan-terminal', `Status: ${result.status}`, result.status === 'ACTIVE' ? 'text-success' : 'text-danger');
+            appendToTerminal('scan-terminal', `Technologies: ${result.technologies.join(', ') || 'None'}`);
             
-            if (data.vulnerabilities && data.vulnerabilities.length > 0) {
-                appendToTerminal('scan-terminal', `Vulnerabilities found: ${data.vulnerabilities.length}`, 'text-danger');
-                data.vulnerabilities.forEach(vuln => {
+            if (result.vulnerabilities && result.vulnerabilities.length > 0) {
+                appendToTerminal('scan-terminal', `Vulnerabilities found: ${result.vulnerabilities.length}`, 'text-danger');
+                result.vulnerabilities.forEach(vuln => {
                     appendToTerminal('scan-terminal', ` - ${vuln}`, 'text-warning');
                 });
                 
                 // If domain has 403 errors, suggest API bypass
-                if (data.has_403_error) {
+                if (result.has_403_error) {
                     appendToTerminal('scan-terminal', `403 Forbidden error detected. Consider using the API Endpoint Bypass tool.`, 'text-info');
                 }
                 
                 // Add view details button
-                if (data.domain_id) {
-                    appendToTerminal('scan-terminal', `<a href="/domain/${data.domain_id}" class="btn btn-sm btn-primary mt-1">View Details</a>`, '');
+                if (result.domain_id) {
+                    appendToTerminal('scan-terminal', `<a href="/domain/${result.domain_id}" class="btn btn-sm btn-primary mt-1">View Details</a>`, '');
                 }
             } else {
-                appendToTerminal('scan-terminal', 'No vulnerabilities detected');
+                appendToTerminal('scan-terminal', 'No vulnerabilities detected', 'text-success');
             }
             
             // Update progress for each domain
-            updateScanProgress(data);
+            updateScanProgress(result);
         });
     })
     .catch(error => {
@@ -532,5 +583,90 @@ function scanDomainList() {
         }
     });
 }
+
+// Terminal output handling
+function appendToTerminal(terminalId, text, className = '') {
+    const terminal = document.getElementById(terminalId);
+    if (!terminal) return;
+    
+    const line = document.createElement('div');
+    if (className) {
+        line.className = className;
+    }
+    
+    // Handle HTML content if present
+    if (text.includes('<') && text.includes('>') && text.includes('</')) {
+        line.innerHTML = text;
+    } else {
+        line.textContent = text;
+    }
+    
+    terminal.appendChild(line);
+    terminal.scrollTop = terminal.scrollHeight;
+}
+
+// Clear terminal
+function clearTerminal(terminalId) {
+    const terminal = document.getElementById(terminalId);
+    if (terminal) {
+        terminal.innerHTML = '';
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Update filter dropdowns based on URL parameters
+    const urlParams = new URLSearchParams(window.location.search);
+    const autorun = urlParams.get('autorun');
+    
+    // Auto-run scan if URL parameters indicate to do so
+    if (autorun === 'true' && document.getElementById('single-domain-input').value) {
+        // Set options based on URL parameters
+        const options = urlParams.get('options');
+        if (options) {
+            const optionList = options.split(',');
+            document.getElementById('scan-cves').checked = optionList.includes('cves');
+            document.getElementById('scan-vulns').checked = optionList.includes('vulnerabilities');
+            document.getElementById('scan-misconfig').checked = optionList.includes('misconfiguration');
+            document.getElementById('scan-exposures').checked = optionList.includes('exposures');
+            document.getElementById('scan-tech').checked = optionList.includes('technologies');
+            document.getElementById('scan-custom').checked = optionList.includes('custom');
+        }
+        
+        // Set severity levels based on URL parameters
+        const severity = urlParams.get('severity');
+        if (severity) {
+            const severityList = severity.split(',');
+            document.getElementById('severity-critical').checked = severityList.includes('critical');
+            document.getElementById('severity-high').checked = severityList.includes('high');
+            document.getElementById('severity-medium').checked = severityList.includes('medium');
+            document.getElementById('severity-low').checked = severityList.includes('low');
+        }
+        
+        // Enable fast scan by default for auto-run
+        document.getElementById('fast-scan').checked = true;
+        
+        // Start the scan after a short delay to allow the page to fully load
+        setTimeout(scanDomain, 500);
+    }
+    
+    // Add event listener for fast scan checkbox
+    document.getElementById('fast-scan').addEventListener('change', function() {
+        if (this.checked) {
+            // When fast scan is enabled, update severity checkboxes
+            document.getElementById('severity-critical').checked = true;
+            document.getElementById('severity-high').checked = true;
+            document.getElementById('severity-medium').checked = false;
+            document.getElementById('severity-low').checked = false;
+            
+            // Update scan options checkboxes
+            document.getElementById('scan-cves').checked = true;
+            document.getElementById('scan-exposures').checked = true;
+            document.getElementById('scan-tech').checked = true;
+            document.getElementById('scan-vulns').checked = false;
+            document.getElementById('scan-misconfig').checked = false;
+        }
+    });
+});
 </script>
 {% endblock %}
