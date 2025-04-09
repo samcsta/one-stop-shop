@@ -1,5 +1,7 @@
 import os
+import json
 import subprocess
+import shutil
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from werkzeug.utils import secure_filename
@@ -17,6 +19,17 @@ db.init_app(app)
 # Ensure upload and wordlists directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['WORDLISTS_FOLDER'], exist_ok=True)
+
+# Custom template directories
+os.makedirs(os.path.join(os.getcwd(), 'custom-templates'), exist_ok=True)
+
+def check_nuclei_installation():
+    """Check if Nuclei is installed and accessible"""
+    nuclei_cmd = scanner.check_nuclei_available()
+    return nuclei_cmd is not None
+
+# Initialize nuclei availability check
+nuclei_available = check_nuclei_installation()
 
 @app.before_first_request
 def create_tables():
@@ -190,35 +203,74 @@ def workspace():
     domains = Domain.query.filter_by(assigned_to="Current User").all()
     return render_template('workspace.html', domains=domains)
 
+# Check Nuclei availability
+@app.route('/check-nuclei')
+def check_nuclei():
+    nuclei_cmd = scanner.check_nuclei_available()
+    return jsonify({"available": nuclei_cmd is not None, "command": nuclei_cmd})
+
 # Scanner routes
 @app.route('/scanner')
 def scanner_page():
     # Check if there's a domain to pre-fill from the query string
     domain_to_scan = request.args.get('domain', '')
-    return render_template('scanner.html', domain_to_scan=domain_to_scan)
+    autorun = request.args.get('autorun', 'false')
+    
+    return render_template('scanner.html', 
+                          domain_to_scan=domain_to_scan,
+                          autorun=autorun)
 
 @app.route('/scan', methods=['POST'])
 def scan():
+    nuclei_cmd = scanner.check_nuclei_available()
+    
     if 'single_domain' in request.form:
         domain_url = request.form['single_domain']
-        # Call the scanner utility with the domain
-        result = scanner.scan_domain(domain_url)
+        scan_options = request.form.get('scan_options', 'cves,vulnerabilities,misconfiguration,exposures,technologies')
+        severity_levels = request.args.get('severity_levels', 'critical,high,medium')
+        
+        # Call the scanner utility with parameters
+        result = scanner.scan_domain(
+            domain_url, 
+            scan_options=scan_options.split(','),
+            severity_levels=severity_levels.split(',')
+        )
         
         # Check if domain has 403 errors (for API bypass suggestion)
         result['has_403_error'] = any('403' in vuln.lower() for vuln in result.get('vulnerabilities', []))
+        result['nuclei_available'] = nuclei_cmd is not None
+        
+        # Add domain ID for the link to details
+        domain = Domain.query.filter_by(url=result['domain']).first()
+        if domain:
+            result['domain_id'] = domain.id
         
         return jsonify(result)
+    
     elif 'domain_list' in request.form:
         domains = request.form['domain_list'].split('\n')
+        scan_options = request.form.get('scan_options', 'cves,vulnerabilities,misconfiguration,exposures,technologies')
+        severity_levels = request.form.get('severity_levels', 'critical,high,medium')
+        
         results = []
         for domain in domains:
             domain = domain.strip()
             if domain:
                 # Scan each domain
-                result = scanner.scan_domain(domain)
+                result = scanner.scan_domain(
+                    domain,
+                    scan_options=scan_options.split(','),
+                    severity_levels=severity_levels.split(',')
+                )
                 
                 # Check if domain has 403 errors
                 result['has_403_error'] = any('403' in vuln.lower() for vuln in result.get('vulnerabilities', []))
+                result['nuclei_available'] = nuclei_cmd is not None
+                
+                # Add domain ID for the link to details
+                domain_obj = Domain.query.filter_by(url=result['domain']).first()
+                if domain_obj:
+                    result['domain_id'] = domain_obj.id
                 
                 results.append(result)
         return jsonify(results)
@@ -258,6 +310,78 @@ def run_bypass():
     # Run the bypass script
     result = api_bypass.run_bypass(domain, wordlist_path)
     return jsonify(result)
+
+# Templates management
+@app.route('/templates', methods=['GET', 'POST'])
+def templates():
+    nuclei_cmd = scanner.check_nuclei_available()
+    
+    if request.method == 'POST':
+        if 'action' in request.form:
+            if request.form['action'] == 'update':
+                try:
+                    if nuclei_cmd:
+                        subprocess.run([nuclei_cmd, '-update-templates'], check=True, capture_output=True)
+                        flash('Nuclei templates updated successfully!', 'success')
+                    else:
+                        flash('Nuclei is not installed or not accessible', 'danger')
+                except Exception as e:
+                    flash(f'Error updating templates: {str(e)}', 'danger')
+                    
+            elif request.form['action'] == 'add-custom' and 'template_content' in request.form:
+                try:
+                    template_name = request.form.get('template_name', '')
+                    if not template_name.endswith('.yaml'):
+                        template_name += '.yaml'
+                        
+                    # Safe template name - prevent directory traversal
+                    template_name = os.path.basename(template_name)
+                    
+                    # Create custom templates directory if it doesn't exist
+                    custom_dir = os.path.join(os.getcwd(), 'custom-templates')
+                    os.makedirs(custom_dir, exist_ok=True)
+                    
+                    template_path = os.path.join(custom_dir, template_name)
+                    with open(template_path, 'w') as f:
+                        f.write(request.form['template_content'])
+                        
+                    flash(f'Custom template "{template_name}" added successfully!', 'success')
+                except Exception as e:
+                    flash(f'Error adding custom template: {str(e)}', 'danger')
+    
+    # Get list of available template categories
+    template_categories = []
+    custom_templates = []
+    
+    if nuclei_cmd:
+        try:
+            # Get built-in template categories
+            output = subprocess.run([nuclei_cmd, '-tl'], check=False, capture_output=True, text=True)
+            for line in output.stdout.splitlines():
+                if line.strip() and not line.startswith(('[', '-')) and not line.strip() == "TEMPLATES":
+                    template_categories.append(line.strip())
+            
+            # Get custom templates
+            custom_dir = os.path.join(os.getcwd(), 'custom-templates')
+            if os.path.exists(custom_dir):
+                custom_templates = [f for f in os.listdir(custom_dir) if f.endswith(('.yaml', '.yml'))]
+        except Exception as e:
+            flash(f'Error getting template list: {str(e)}', 'warning')
+    
+    return render_template('templates.html', 
+                          template_categories=template_categories,
+                          custom_templates=custom_templates,
+                          nuclei_available=(nuclei_cmd is not None))
+
+# Scan link (for convenient scan from domain details)
+@app.route('/scan-link/<int:domain_id>')
+def scan_link(domain_id):
+    domain = Domain.query.get_or_404(domain_id)
+    return redirect(url_for('scanner_page', 
+                           domain=domain.url, 
+                           autorun='true',
+                           options='cves,vulnerabilities,misconfiguration,exposures,technologies',
+                           severity='critical,high,medium'))
 
 # Add domain route (used internally after scanning)
 @app.route('/add-domain', methods=['POST'])
