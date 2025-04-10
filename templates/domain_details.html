@@ -27,12 +27,20 @@
             <i class="fas fa-arrow-left mr-1"></i>Back to Domains
         </a>
         <div class="btn-group ml-2">
-            <a href="{{ url_for('scanner_page') }}?domain={{ domain.url }}" class="btn btn-info">
-                <i class="fas fa-sync-alt mr-1"></i>Rescan
+            <a href="{{ url_for('basic_scanner_page') }}?domain={{ domain.url }}&autorun=true" class="btn btn-primary">
+                <i class="fas fa-search mr-1"></i>Basic Scan
             </a>
+            <a href="{{ url_for('nuclei_scanner_page') }}?domain={{ domain.url }}&autorun=true" class="btn btn-info">
+                <i class="fas fa-radiation mr-1"></i>Nuclei Scan
+            </a>
+            {% if domain.endpoints and domain.endpoints|selectattr('url', 'search', 'main')|selectattr('url', 'search', '.js')|list|length > 0 %}
+            <a href="{{ url_for('mainjs_analyzer_page') }}?domain_id={{ domain.id }}" class="btn btn-warning">
+                <i class="fas fa-code mr-1"></i>Analyze main.js
+            </a>
+            {% endif %}
             {% if domain.status == 'ACTIVE' %}
-            <a href="{{ url_for('api_bypass_page') }}?domain=https://{{ domain.url }}" class="btn btn-warning">
-                <i class="fas fa-key mr-1"></i>Test API Bypasses
+            <a href="{{ url_for('api_bypass_page') }}?domain=https://{{ domain.url }}" class="btn btn-dark">
+                <i class="fas fa-key mr-1"></i>API Bypass
             </a>
             {% endif %}
         </div>
@@ -313,7 +321,7 @@
                     <i class="fas fa-shield-alt fa-3x text-muted mb-3"></i>
                     <h5>No vulnerabilities detected</h5>
                     <p class="text-muted">This domain appears to be secure based on our last scan.</p>
-                    <a href="{{ url_for('scanner_page') }}?domain={{ domain.url }}" class="btn btn-primary">
+                    <a href="{{ url_for('basic_scanner_page') }}?domain={{ domain.url }}" class="btn btn-primary">
                         <i class="fas fa-sync-alt mr-1"></i>Run a new scan
                     </a>
                 </div>
@@ -401,7 +409,21 @@
                                                 </div>
                                                 <div class="col-md-6">
                                                     <label class="font-weight-bold">Status Code:</label>
-                                                    <div>{{ endpoint.status_code or 'Unknown' }}</div>
+                                                    <div>
+                                                        {% if endpoint.status_code == 200 %}
+                                                        <span class="badge badge-success">200 OK</span>
+                                                        {% elif endpoint.status_code == 403 %}
+                                                        <span class="badge badge-warning">403 Forbidden</span>
+                                                        {% elif endpoint.status_code == 401 %}
+                                                        <span class="badge badge-warning">401 Unauthorized</span>
+                                                        {% elif endpoint.status_code == 404 %}
+                                                        <span class="badge badge-secondary">404 Not Found</span>
+                                                        {% elif endpoint.status_code %}
+                                                        <span class="badge badge-info">{{ endpoint.status_code }}</span>
+                                                        {% else %}
+                                                        <span class="badge badge-secondary">Unknown</span>
+                                                        {% endif %}
+                                                    </div>
                                                 </div>
                                             </div>
                                             
@@ -415,22 +437,24 @@
                                                 <div>{{ endpoint.date_discovered.strftime('%Y-%m-%d %H:%M') }}</div>
                                             </div>
                                             
-                                            <div class="form-group">
-                                                <label class="font-weight-bold">Notes:</label>
-                                                <textarea class="form-control" rows="3">{{ endpoint.notes or '' }}</textarea>
-                                            </div>
-                                            
-                                            <div class="form-check mb-3">
-                                                <input class="form-check-input" type="checkbox" id="endpointInteresting-{{ endpoint.id }}" {{ 'checked' if endpoint.is_interesting else '' }}>
-                                                <label class="form-check-label" for="endpointInteresting-{{ endpoint.id }}">
-                                                    Mark as interesting endpoint
-                                                </label>
-                                            </div>
-                                            
-                                            <div class="text-right">
-                                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
-                                                <button type="button" class="btn btn-primary">Save Changes</button>
-                                            </div>
+                                            <form action="{{ url_for('update_endpoint', id=endpoint.id) }}" method="post">
+                                                <div class="form-group">
+                                                    <label class="font-weight-bold">Notes:</label>
+                                                    <textarea class="form-control" name="notes" rows="3">{{ endpoint.notes or '' }}</textarea>
+                                                </div>
+                                                
+                                                <div class="form-check mb-3">
+                                                    <input class="form-check-input" type="checkbox" name="is_interesting" id="endpointInteresting-{{ endpoint.id }}" {{ 'checked' if endpoint.is_interesting else '' }}>
+                                                    <label class="form-check-label" for="endpointInteresting-{{ endpoint.id }}">
+                                                        Mark as interesting endpoint
+                                                    </label>
+                                                </div>
+                                                
+                                                <div class="text-right">
+                                                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                                                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                                                </div>
+                                            </form>
                                         </div>
                                     </div>
                                 </div>
@@ -526,7 +550,7 @@
             </div>
         </div>
         
-        <!-- Scan Log Card (New) -->
+        <!-- Scan Log Card -->
         <div class="card mb-4">
             <div class="card-header">
                 <h5 class="mb-0"><i class="fas fa-history mr-2 text-primary"></i>Scan Log</h5>
@@ -548,7 +572,7 @@
                     <!-- Add more scan history items here if available -->
                 </div>
                 <div class="p-3 text-center">
-                    <a href="{{ url_for('scanner_page') }}?domain={{ domain.url }}" class="btn btn-primary btn-sm">
+                    <a href="{{ url_for('basic_scanner_page') }}?domain={{ domain.url }}" class="btn btn-primary btn-sm">
                         <i class="fas fa-sync-alt mr-1"></i>Run New Scan
                     </a>
                 </div>

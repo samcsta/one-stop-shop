@@ -32,8 +32,14 @@
                 <a href="{{ url_for('workspace') }}" class="list-group-item list-group-item-action">
                     <i class="fas fa-briefcase mr-2"></i>Workspace
                 </a>
-                <a href="{{ url_for('scanner_page') }}" class="list-group-item list-group-item-action">
-                    <i class="fas fa-search mr-2"></i>Scanner
+                <a href="{{ url_for('basic_scanner_page') }}" class="list-group-item list-group-item-action">
+                    <i class="fas fa-search mr-2"></i>Basic Scanner
+                </a>
+                <a href="{{ url_for('nuclei_scanner_page') }}" class="list-group-item list-group-item-action">
+                    <i class="fas fa-radiation mr-2"></i>Nuclei Scanner
+                </a>
+                <a href="{{ url_for('mainjs_analyzer_page') }}" class="list-group-item list-group-item-action">
+                    <i class="fas fa-code mr-2"></i>Main.js Analyzer
                 </a>
                 <a href="{{ url_for('api_bypass_page') }}" class="list-group-item list-group-item-action">
                     <i class="fas fa-key mr-2"></i>API Endpoint Bypass

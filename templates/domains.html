@@ -4,7 +4,7 @@
 <div class="dashboard-header d-flex justify-content-between align-items-center mb-4">
     <h1 class="dashboard-title">Domains</h1>
     <div>
-        <a href="{{ url_for('scanner_page') }}" class="btn btn-primary">
+        <a href="{{ url_for('basic_scanner_page') }}" class="btn btn-primary">
             <i class="fas fa-search mr-2"></i>Scan New Domains
         </a>
     </div>
@@ -145,7 +145,7 @@
                                     </button>
                                 </form>
                                 {% endif %}
-                                <a href="{{ url_for('scanner_page') }}?domain={{ domain.url }}" class="btn btn-sm btn-info ml-1">
+                                <a href="{{ url_for('basic_scanner_page') }}?domain={{ domain.url }}" class="btn btn-sm btn-info ml-1">
                                     <i class="fas fa-sync-alt mr-1"></i>Rescan
                                 </a>
                                 <form action="{{ url_for('delete_domain', id=domain.id) }}" method="post" class="d-inline" 
@@ -164,7 +164,7 @@
                                 <i class="fas fa-search fa-3x text-muted mb-3"></i>
                                 <h5>No domains found</h5>
                                 <p class="text-muted">Use the scanner to add new domains</p>
-                                <a href="{{ url_for('scanner_page') }}" class="btn btn-primary mt-2">
+                                <a href="{{ url_for('basic_scanner_page') }}" class="btn btn-primary mt-2">
                                     <i class="fas fa-search mr-2"></i>Go to Scanner
                                 </a>
                             </div>

@@ -1,0 +1,588 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="dashboard-header d-flex justify-content-between align-items-center mb-4">
+    <h1 class="dashboard-title">Main.js Analyzer</h1>
+    <div>
+        <a href="{{ url_for('basic_scanner_page') }}" class="btn btn-primary">
+            <i class="fas fa-search mr-2"></i>Basic Scanner
+        </a>
+        <a href="{{ url_for('nuclei_scanner_page') }}" class="btn btn-info ml-2">
+            <i class="fas fa-radiation mr-2"></i>Nuclei Scanner
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-4 mb-4">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-code mr-2 text-primary"></i>Select Domain</h5>
+            </div>
+            <div class="card-body">
+                {% if domains %}
+                <div class="form-group">
+                    <label for="domain-select">Domain with main.js:</label>
+                    <select class="form-control" id="domain-select" onchange="selectDomain(this.value)">
+                        <option value="">-- Select a domain --</option>
+                        {% for domain in domains %}
+                        <option value="{{ domain.id }}" {% if selected_domain and selected_domain.id == domain.id %}selected{% endif %}>
+                            {{ domain.url }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% else %}
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle mr-2"></i>
+                    No domains with main.js files detected. Use the Basic Scanner to discover domains with main.js files.
+                </div>
+                <a href="{{ url_for('basic_scanner_page') }}" class="btn btn-primary">
+                    <i class="fas fa-search mr-2"></i>Go to Basic Scanner
+                </a>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="card mt-4" id="analysis-card" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-search mr-2 text-primary"></i>Quick Analysis</h5>
+            </div>
+            <div class="card-body">
+                <button class="btn btn-primary btn-block mb-3" onclick="quickAnalyze()">
+                    <i class="fas fa-magic mr-2"></i>Auto-Analyze
+                </button>
+                
+                <div class="form-group">
+                    <label for="search-term">Search in main.js:</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="search-term" placeholder="API, key, token, etc.">
+                        <div class="input-group-append">
+                            <button class="btn btn-outline-primary" type="button" onclick="searchInMainJs()">
+                                <i class="fas fa-search"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="analysis-results" style="display: none;">
+                    <h6 class="mt-4 mb-3">Analysis Results</h6>
+                    
+                    <div id="api-endpoints-section">
+                        <h6 class="text-primary mb-2"><i class="fas fa-link mr-1"></i>API Endpoints</h6>
+                        <div id="api-endpoints-list" class="mb-3">
+                            <div class="text-muted">No API endpoints found</div>
+                        </div>
+                    </div>
+                    
+                    <div id="router-links-section">
+                        <h6 class="text-primary mb-2"><i class="fas fa-route mr-1"></i>Router Links</h6>
+                        <div id="router-links-list" class="mb-3">
+                            <div class="text-muted">No router links found</div>
+                        </div>
+                    </div>
+                    
+                    <div id="secrets-section">
+                        <h6 class="text-primary mb-2"><i class="fas fa-key mr-1"></i>Potential Secrets</h6>
+                        <div id="secrets-list" class="mb-3">
+                            <div class="text-muted">No potential secrets found</div>
+                        </div>
+                    </div>
+                    
+                    <div id="search-results-section" style="display: none;">
+                        <h6 class="text-primary mb-2"><i class="fas fa-search mr-1"></i>Search Results</h6>
+                        <div id="search-results-list" class="mb-3">
+                            <div class="text-muted">No search results</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-8 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0" id="mainjs-header">main.js Content</h5>
+                <div>
+                    <button class="btn btn-sm btn-secondary" id="format-btn" onclick="formatCode()" style="display: none;">
+                        <i class="fas fa-indent mr-1"></i>Format Code
+                    </button>
+                    <button class="btn btn-sm btn-info ml-2" id="download-btn" onclick="downloadMainJs()" style="display: none;">
+                        <i class="fas fa-download mr-1"></i>Download
+                    </button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                <div id="loading-indicator" style="display: none;" class="p-5 text-center">
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="sr-only">Loading...</span>
+                    </div>
+                    <p class="mt-3">Loading main.js file...</p>
+                </div>
+                
+                <div id="no-mainjs-message" class="p-5 text-center">
+                    <i class="fas fa-code fa-3x text-muted mb-3"></i>
+                    <h5>Select a domain to view main.js</h5>
+                    <p class="text-muted">The JavaScript file will appear here for analysis.</p>
+                </div>
+                
+                <div id="mainjs-container" style="display: none;">
+                    <pre id="mainjs-content" class="p-3" style="max-height: 600px; overflow-y: auto;"></pre>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/languages/javascript.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.5.1/styles/vs2015.min.css">
+
+<script>
+let mainJsContent = '';
+let mainJsUrl = '';
+let currentDomainId = null;
+
+// Select domain and load main.js
+function selectDomain(domainId) {
+    if (!domainId) {
+        // Reset UI if no domain selected
+        resetUI();
+        return;
+    }
+    
+    currentDomainId = domainId;
+    
+    // Show loading indicator
+    document.getElementById('loading-indicator').style.display = 'block';
+    document.getElementById('no-mainjs-message').style.display = 'none';
+    document.getElementById('mainjs-container').style.display = 'none';
+    document.getElementById('analysis-card').style.display = 'block';
+    document.getElementById('analysis-results').style.display = 'none';
+    
+    // Fetch main.js content
+    fetch(`/get-mainjs-content/${domainId}`)
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to fetch main.js content');
+            }
+            return response.json();
+        })
+        .then(data => {
+            // Hide loading indicator
+            document.getElementById('loading-indicator').style.display = 'none';
+            
+            // Update URL and content
+            mainJsUrl = data.url;
+            mainJsContent = data.content;
+            
+            // Update header
+            document.getElementById('mainjs-header').innerHTML = 
+                `<i class="fas fa-file-code mr-2"></i>main.js <small class="text-muted">(${mainJsUrl.split('/').pop()})</small>`;
+            
+            // Display the content
+            document.getElementById('mainjs-container').style.display = 'block';
+            document.getElementById('mainjs-content').textContent = mainJsContent;
+            
+            // Apply syntax highlighting
+            highlightCode();
+            
+            // Show buttons
+            document.getElementById('format-btn').style.display = 'inline-block';
+            document.getElementById('download-btn').style.display = 'inline-block';
+            
+            // Update URL to include domain ID
+            history.replaceState(null, '', `/mainjs-analyzer?domain_id=${domainId}`);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            document.getElementById('loading-indicator').style.display = 'none';
+            document.getElementById('no-mainjs-message').style.display = 'block';
+            document.getElementById('no-mainjs-message').innerHTML = `
+                <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+                <h5>Error loading main.js</h5>
+                <p class="text-muted">${error.message}</p>
+            `;
+        });
+}
+
+// Reset UI to initial state
+function resetUI() {
+    document.getElementById('no-mainjs-message').style.display = 'block';
+    document.getElementById('mainjs-container').style.display = 'none';
+    document.getElementById('loading-indicator').style.display = 'none';
+    document.getElementById('analysis-card').style.display = 'none';
+    document.getElementById('format-btn').style.display = 'none';
+    document.getElementById('download-btn').style.display = 'none';
+    document.getElementById('mainjs-header').innerHTML = 'main.js Content';
+    
+    // Update URL to remove domain ID
+    history.replaceState(null, '', `/mainjs-analyzer`);
+    
+    mainJsContent = '';
+    mainJsUrl = '';
+    currentDomainId = null;
+}
+
+// Apply syntax highlighting to code
+function highlightCode() {
+    const codeElement = document.getElementById('mainjs-content');
+    hljs.highlightElement(codeElement);
+}
+
+// Format code with prettier indentation
+function formatCode() {
+    try {
+        // This is a very basic formatter that just indents the code
+        // In a real app, you might want to use a proper formatter like prettier
+        const formatted = js_beautify(mainJsContent, {
+            indent_size: 2,
+            space_in_empty_paren: true
+        });
+        
+        document.getElementById('mainjs-content').textContent = formatted;
+        highlightCode();
+    } catch (error) {
+        console.error('Error formatting code:', error);
+        alert('Error formatting code. The JavaScript file might be minified or malformed.');
+    }
+}
+
+// Download main.js file
+function downloadMainJs() {
+    if (!mainJsContent) return;
+    
+    const blob = new Blob([mainJsContent], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = mainJsUrl.split('/').pop() || 'main.js';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+// Quick analyze main.js
+function quickAnalyze() {
+    if (!mainJsContent || !currentDomainId) return;
+    
+    document.getElementById('analysis-results').style.display = 'none';
+    
+    // Simple client-side analysis
+    const results = analyzeMainJs(mainJsContent);
+    
+    // Display results
+    displayAnalysisResults(results);
+}
+
+// Search in main.js
+function searchInMainJs() {
+    if (!mainJsContent) return;
+    
+    const searchTerm = document.getElementById('search-term').value.trim();
+    if (!searchTerm) return;
+    
+    // Find all occurrences of the search term
+    const results = [];
+    const lines = mainJsContent.split('\n');
+    
+    lines.forEach((line, i) => {
+        if (line.toLowerCase().includes(searchTerm.toLowerCase())) {
+            results.push({
+                line: i + 1,
+                content: line.trim()
+            });
+        }
+    });
+    
+    // Display search results
+    const searchResultsSection = document.getElementById('search-results-section');
+    const searchResultsList = document.getElementById('search-results-list');
+    
+    if (results.length > 0) {
+        searchResultsSection.style.display = 'block';
+        
+        const resultsHtml = results.map(result => `
+                            <div class="alert alert-info py-2 px-3 mb-2">
+                <div class="d-flex justify-content-between">
+                    <span>Line ${result.line}:</span>
+                    <button class="btn btn-sm btn-link p-0" onclick="scrollToLine(${result.line})">Go to line</button>
+                </div>
+                <code class="d-block mt-1">${escapeHtml(result.content)}</code>
+            </div>
+        `).join('');
+        
+        searchResultsList.innerHTML = resultsHtml;
+    } else {
+        searchResultsSection.style.display = 'block';
+        searchResultsList.innerHTML = `<div class="alert alert-warning py-2 px-3">No results found for "${searchTerm}"</div>`;
+    }
+    
+    // Make sure analysis results are shown
+    document.getElementById('analysis-results').style.display = 'block';
+}
+
+// Display analysis results
+function displayAnalysisResults(results) {
+    document.getElementById('analysis-results').style.display = 'block';
+    
+    // Display API endpoints
+    const apiEndpointsList = document.getElementById('api-endpoints-list');
+    if (results.api_endpoints && results.api_endpoints.length > 0) {
+        const endpointsHtml = results.api_endpoints.map(endpoint => `
+            <div class="alert alert-info py-2 px-3 mb-2">
+                <code>${endpoint}</code>
+            </div>
+        `).join('');
+        apiEndpointsList.innerHTML = endpointsHtml;
+    } else {
+        apiEndpointsList.innerHTML = '<div class="text-muted">No API endpoints found</div>';
+    }
+    
+    // Display router links
+    const routerLinksList = document.getElementById('router-links-list');
+    if (results.router_links && results.router_links.length > 0) {
+        const linksHtml = results.router_links.map(link => `
+            <div class="alert alert-info py-2 px-3 mb-2">
+                <code>${link}</code>
+            </div>
+        `).join('');
+        routerLinksList.innerHTML = linksHtml;
+    } else {
+        routerLinksList.innerHTML = '<div class="text-muted">No router links found</div>';
+    }
+    
+    // Display potential secrets
+    const secretsList = document.getElementById('secrets-list');
+    if (results.potential_secrets && results.potential_secrets.length > 0) {
+        const secretsHtml = results.potential_secrets.map(secret => `
+            <div class="alert alert-danger py-2 px-3 mb-2">
+                <div class="d-flex justify-content-between">
+                    <strong>${secret.type}:</strong>
+                    <button class="btn btn-sm btn-link p-0" onclick="scrollToLine(${secret.line})">Line ${secret.line}</button>
+                </div>
+                <code class="d-block mt-1">${secret.preview}</code>
+            </div>
+        `).join('');
+        secretsList.innerHTML = secretsHtml;
+    } else {
+        secretsList.innerHTML = '<div class="text-muted">No potential secrets found</div>';
+    }
+    
+    // Hide search results section
+    document.getElementById('search-results-section').style.display = 'none';
+}
+
+// Analyze main.js
+function analyzeMainJs(jsContent) {
+    const results = {
+        api_endpoints: [],
+        router_links: [],
+        potential_secrets: []
+    };
+    
+    // Look for API endpoints
+    const apiPatterns = [
+        /url:\s*[\'"]([^\'"]*)[\'"]/, 
+        /path:\s*[\'"]([^\'"]*)[\'"]/, 
+        /api[\'"]?:\s*[\'"]([^\'"]*)[\'"]/, 
+        /endpoint[\'"]?:\s*[\'"]([^\'"]*)[\'"]/, 
+        /fetch\([\'"]([^\'"]*)[\'"]/, 
+        /axios\.[a-z]+\([\'"]([^\'"]*)[\'"]/, 
+        /ajax\([\'"]([^\'"]*)[\'"]/, 
+        /\.get\([\'"]([^\'"]*)[\'"]/, 
+        /\.post\([\'"]([^\'"]*)[\'"]/, 
+        /\.put\([\'"]([^\'"]*)[\'"]/, 
+        /\.delete\([\'"]([^\'"]*)[\'"]/ 
+    ];
+    
+    // Look for router links
+    const routerPatterns = [
+        /route[\'"]?:\s*[\'"]([^\'"]*)[\'"]/, 
+        /path[\'"]?:\s*[\'"]([^\'"]*)[\'"]/, 
+        /component:\s*[\'"]([^\'"]*)[\'"]/, 
+        /Route\s+path=[\'"]([^\'"]*)[\'"]/, 
+        /[\'"]route[\'"]:\s*[\'"]([^\'"]*)[\'"]/, 
+        /routes\[[\'"]([^\'"]*)[\'"]]/
+    ];
+    
+    // Look for potential secrets
+    const secretPatterns = [
+        { regex: /(?i)api[_-]?key["\']?\s*[:=]\s*["\']([^"\']{20,})["\']/, type: 'API Key' },
+        { regex: /(?i)access[_-]?token["\']?\s*[:=]\s*["\']([^"\']{20,})["\']/, type: 'Access Token' },
+        { regex: /(?i)auth[_-]?token["\']?\s*[:=]\s*["\']([^"\']{20,})["\']/, type: 'Auth Token' },
+        { regex: /(?i)secret[_-]?key["\']?\s*[:=]\s*["\']([^"\']{20,})["\']/, type: 'Secret Key' },
+        { regex: /(?i)password["\']?\s*[:=]\s*["\']([^"\']{8,})["\']/, type: 'Password' }
+    ];
+    
+    // Split content into lines
+    const lines = jsContent.split('\n');
+    
+    // Search for patterns in each line
+    lines.forEach((line, lineNumber) => {
+        // Look for API endpoints
+        apiPatterns.forEach(pattern => {
+            const matches = line.match(pattern);
+            if (matches && matches[1]) {
+                const endpoint = matches[1].trim();
+                
+                // Skip obvious non-endpoints
+                if (endpoint.length > 0 && 
+                    !endpoint.match(/\.(js|css|html|jpg|png|gif)$/) &&
+                    !endpoint.match(/^(https?:\/\/|www\.)/) &&
+                    !results.api_endpoints.includes(endpoint)) {
+                    results.api_endpoints.push(endpoint);
+                }
+            }
+        });
+        
+        // Look for router links
+        routerPatterns.forEach(pattern => {
+            const matches = line.match(pattern);
+            if (matches && matches[1]) {
+                const link = matches[1].trim();
+                
+                // Skip empty or duplicate links
+                if (link.length > 0 && !results.router_links.includes(link)) {
+                    results.router_links.push(link);
+                }
+            }
+        });
+        
+        // Look for potential secrets
+        secretPatterns.forEach(({ regex, type }) => {
+            const matches = line.match(regex);
+            if (matches && matches[1]) {
+                const secret = matches[1].trim();
+                
+                // Skip if it's obviously a placeholder
+                if (!secret.match(/YOUR_|XXXX|example|placeholder|demo/i)) {
+                    results.potential_secrets.push({
+                        type: type,
+                        preview: `${secret.substring(0, 5)}...[redacted]`,
+                        line: lineNumber + 1
+                    });
+                }
+            }
+        });
+    });
+    
+    return results;
+}
+
+// Scroll to a specific line in the code
+function scrollToLine(lineNumber) {
+    const codeElement = document.getElementById('mainjs-content');
+    
+    // Find the line element
+    const lines = codeElement.querySelectorAll('.hljs-ln-line');
+    if (lines.length >= lineNumber) {
+        const targetLine = lines[lineNumber - 1];
+        
+        // Scroll to the line
+        targetLine.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // Highlight the line temporarily
+        targetLine.style.backgroundColor = 'rgba(255, 255, 0, 0.2)';
+        setTimeout(() => {
+            targetLine.style.backgroundColor = '';
+        }, 2000);
+    }
+}
+
+// Escape HTML special characters
+function escapeHtml(unsafe) {
+    return unsafe
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+// Simple JavaScript beautifier (for basic formatting only)
+function js_beautify(js_source_text, options) {
+    const indent_size = options.indent_size || 4;
+    const indent_char = options.indent_char || ' ';
+    
+    // This is a very basic formatter that just tries to add indentation
+    // For a real application, you'd want to use a proper library like js-beautify
+    
+    let formatted = '';
+    let indent_level = 0;
+    let in_string = false;
+    let string_char = '';
+    
+    for (let i = 0; i < js_source_text.length; i++) {
+        const c = js_source_text.charAt(i);
+        const next = js_source_text.charAt(i + 1);
+        
+        // Handle strings
+        if ((c === "'" || c === '"') && js_source_text.charAt(i - 1) !== '\\') {
+            if (!in_string) {
+                in_string = true;
+                string_char = c;
+            } else if (c === string_char) {
+                in_string = false;
+            }
+        }
+        
+        // If we're in a string, just add the character
+        if (in_string) {
+            formatted += c;
+            continue;
+        }
+        
+        // Handle brackets
+        if (c === '{' || c === '[' || c === '(') {
+            formatted += c;
+            if (next !== '\n') {
+                formatted += '\n';
+            }
+            indent_level++;
+            formatted += indent_char.repeat(indent_level * indent_size);
+        } else if (c === '}' || c === ']' || c === ')') {
+            indent_level = Math.max(0, indent_level - 1);
+            formatted = formatted.trimRight() + '\n' + indent_char.repeat(indent_level * indent_size) + c;
+        } else if (c === ';') {
+            formatted += c;
+            if (next !== '\n') {
+                formatted += '\n';
+                formatted += indent_char.repeat(indent_level * indent_size);
+            }
+        } else if (c === '\n') {
+            formatted += c;
+            if (next !== '}' && next !== ']' && next !== ')') {
+                formatted += indent_char.repeat(indent_level * indent_size);
+            }
+        } else {
+            formatted += c;
+        }
+    }
+    
+    return formatted;
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if a domain was pre-selected from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const domainId = urlParams.get('domain_id');
+    
+    if (domainId) {
+        // Select the domain in the dropdown
+        const selectElement = document.getElementById('domain-select');
+        if (selectElement) {
+            selectElement.value = domainId;
+            
+            // Load the domain
+            selectDomain(domainId);
+        }
+    }
+});
+</script>
+{% endblock %}

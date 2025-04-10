@@ -11,7 +11,10 @@ from flask_socketio import SocketIO
 from werkzeug.utils import secure_filename
 from config import Config
 from models import db, Domain, Technology, Vulnerability, Endpoint, Screenshot
-import utils.scanner as scanner
+
+# Import the separated scanner modules instead of a single scanner file
+import utils.basic_scanner as basic_scanner
+import utils.nuclei_scanner as nuclei_scanner
 import utils.api_bypass as api_bypass
 
 app = Flask(__name__)
@@ -22,7 +25,10 @@ db.init_app(app)
 
 # Initialize Socket.IO
 socketio = SocketIO(app)
-scanner.init_socketio(socketio)
+
+# Initialize both scanners with Socket.IO
+basic_scanner.init_socketio(socketio)
+nuclei_scanner.init_socketio(socketio)
 
 # Ensure upload and wordlists directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -206,141 +212,188 @@ def workspace():
     domains = Domain.query.filter_by(assigned_to="Current User").all()
     return render_template('workspace.html', domains=domains)
 
-# Scanner routes
-@app.route('/scanner')
-def scanner_page():
+# Basic Scanner Route
+@app.route('/basic-scanner')
+def basic_scanner_page():
     # Check if there's a domain to pre-fill from the query string
     domain_to_scan = request.args.get('domain', '')
     autorun = request.args.get('autorun', 'false')
     
-    return render_template('scanner.html', 
+    return render_template('basic_scanner.html', 
                           domain_to_scan=domain_to_scan,
                           autorun=autorun)
 
-@app.route('/scan', methods=['POST'])
-def scan():
-    # Generate a unique scan ID for this request
-    scan_id = f"scan_{int(time.time())}_{random.randint(1000, 9999)}"
+# Nuclei Scanner Route
+@app.route('/nuclei-scanner')
+def nuclei_scanner_page():
+    # Check if there's a domain to pre-fill from the query string
+    domain_to_scan = request.args.get('domain', '')
+    autorun = request.args.get('autorun', 'false')
     
-    # Check if this is a fast scan request
-    fast_scan = request.form.get('fast_scan', 'false').lower() == 'true'
-    
-    if 'single_domain' in request.form:
-        domain_url = request.form['single_domain'].strip()
-        
-        if fast_scan:
-            # Use the optimized fast scan function
-            result = scanner.scan_domain_fast(domain_url, scan_id=scan_id)
-        else:
-            # Use original scan with custom options
-            scan_options = request.form.get('scan_options', 'cves,vulnerabilities,misconfiguration,exposures,technologies')
-            severity_levels = request.form.get('severity_levels', 'critical,high,medium')
-            
-            # Call the scanner utility with parameters
-            result = scanner.scan_domain(
-                domain_url, 
-                scan_id=scan_id,
-                scan_options=scan_options.split(','),
-                severity_levels=severity_levels.split(',')
-            )
-        
-        # Check if domain has 403 errors (for API bypass suggestion)
-        result['has_403_error'] = any('403' in vuln.lower() for vuln in result.get('vulnerabilities', []))
-        
-        # Add domain ID for the link to details
-        domain = Domain.query.filter_by(url=result['domain']).first()
-        if domain:
-            result['domain_id'] = domain.id
-        
-        return jsonify(result)
-    
-    elif 'domain_list' in request.form:
-        domains = request.form['domain_list'].split('\n')
-        batch_size = int(request.form.get('batch_size', '10'))
-        
-        if fast_scan:
-            # For fast scanning of multiple domains
-            scan_options, severity_levels = scanner.get_optimized_scan_options(full_scan=False)
-        else:
-            # Use custom options
-            scan_options = request.form.get('scan_options', 'cves,vulnerabilities,misconfiguration,exposures,technologies').split(',')
-            severity_levels = request.form.get('severity_levels', 'critical,high,medium').split(',')
-        
-        # Filter out empty domains
-        domains = [d.strip() for d in domains if d.strip()]
-        
-        # Start the scanning process in a background thread if there are many domains
-        if len(domains) > 5:
-            def run_bulk_scan():
-                with app.app_context():
-                    scanner.scan_domain_batch(domains, batch_size, fast_scan)
-            
-            thread = threading.Thread(target=run_bulk_scan)
-            thread.daemon = True
-            thread.start()
-            
-            return jsonify({
-                "message": f"Started bulk scan of {len(domains)} domains",
-                "batch_size": batch_size,
-                "scan_id": scan_id
-            })
-        else:
-            # For small number of domains, process them directly
-            results = []
-            for i, domain in enumerate(domains):
-                domain = domain.strip()
-                if domain:
-                    # Generate a separate scan ID for each domain
-                    domain_scan_id = f"{scan_id}_{i}"
-                    
-                    # Scan each domain
-                    result = scanner.scan_domain(
-                        domain,
-                        scan_id=domain_scan_id,
-                        scan_options=scan_options,
-                        severity_levels=severity_levels
-                    )
-                    
-                    # Check if domain has 403 errors
-                    result['has_403_error'] = any('403' in vuln.lower() for vuln in result.get('vulnerabilities', []))
-                    
-                    # Add domain ID for the link to details
-                    domain_obj = Domain.query.filter_by(url=result['domain']).first()
-                    if domain_obj:
-                        result['domain_id'] = domain_obj.id
-                    
-                    results.append(result)
-            return jsonify(results)
-    
-    return jsonify({"error": "No domain provided"}), 400
+    return render_template('nuclei_scanner.html', 
+                          domain_to_scan=domain_to_scan,
+                          autorun=autorun)
 
-# Add new route for bulk scanning
-@app.route('/bulk-scan', methods=['POST'])
-def bulk_scan():
-    """Process a bulk scan of multiple domains with optimized settings"""
+# Run Basic Scan
+@app.route('/run-basic-scan', methods=['POST'])
+def run_basic_scan():
+    domain_url = request.form.get('domain', '').strip()
+    if not domain_url:
+        return jsonify({"error": "No domain provided"}), 400
+    
+    # Generate a scan ID
+    scan_id = f"basic_scan_{int(time.time())}"
+    
+    # Run basic scan
+    result = basic_scanner.basic_scan(domain_url, scan_id)
+    
+    # Add domain ID for the link to details
+    domain = Domain.query.filter_by(url=result['domain']).first()
+    if domain:
+        result['domain_id'] = domain.id
+    
+    return jsonify(result)
+
+# Run Basic Scan Batch
+@app.route('/run-basic-scan-batch', methods=['POST'])
+def run_basic_scan_batch():
     data = request.get_json()
     
     if not data or 'domains' not in data:
         return jsonify({"error": "No domains provided"}), 400
     
     domains = data['domains']
-    batch_size = data.get('batch_size', 10)  # Default to 10 domains per batch
-    full_scan = data.get('full_scan', False)  # Default to fast scan
+    batch_size = data.get('batch_size', 10)
+    options = data.get('options', {})
     
-    # Start the scanning process in a background thread to avoid blocking
-    def run_bulk_scan():
+    # Generate a unique scan ID for this batch
+    batch_id = f"batch_scan_{int(time.time())}"
+    
+    # Start the scanning process in a background thread
+    def run_batch_scan():
         with app.app_context():
-            scanner.scan_domain_batch(domains, batch_size, full_scan)
+            for i in range(0, len(domains), batch_size):
+                batch = domains[i:i+batch_size]
+                for j, domain in enumerate(batch):
+                    if domain:
+                        # Generate a scan ID for each domain
+                        scan_id = f"{batch_id}_{i//batch_size}_{j}"
+                        try:
+                            basic_scanner.basic_scan(domain, scan_id)
+                        except Exception as e:
+                            print(f"Error scanning {domain}: {str(e)}")
+                # Small delay between batches
+                time.sleep(2)
     
-    thread = threading.Thread(target=run_bulk_scan)
+    thread = threading.Thread(target=run_batch_scan)
     thread.daemon = True
     thread.start()
     
     return jsonify({
-        "message": f"Started bulk scan of {len(domains)} domains",
-        "batch_size": batch_size,
-        "full_scan": full_scan
+        "message": f"Started batch scan of {len(domains)} domains",
+        "batch_size": batch_size
     })
+
+# Run Nuclei Scan
+@app.route('/run-nuclei-scan', methods=['POST'])
+def run_nuclei_scan():
+    domain_url = request.form.get('domain', '').strip()
+    scan_options = request.form.get('scan_options', '').split(',')
+    severity_levels = request.form.get('severity_levels', '').split(',')
+    
+    if not domain_url:
+        return jsonify({"error": "No domain provided"}), 400
+    
+    # Generate a scan ID
+    scan_id = f"nuclei_scan_{int(time.time())}"
+    
+    # Run nuclei scan
+    result = nuclei_scanner.nuclei_scan(domain_url, scan_id, scan_options, severity_levels)
+    
+    # Add domain ID for the link to details
+    domain = Domain.query.filter_by(url=result['domain']).first()
+    if domain:
+        result['domain_id'] = domain.id
+    
+    return jsonify(result)
+
+# Main.js Analysis Routes
+@app.route('/mainjs-analyzer')
+def mainjs_analyzer_page():
+    # Get domains with main.js files
+    domains_with_mainjs = []
+    domains = Domain.query.all()
+    
+    for domain in domains:
+        # Check if any endpoint for this domain contains main.js
+        has_mainjs = Endpoint.query.filter(
+            Endpoint.domain_id == domain.id,
+            (Endpoint.url.like('%main.%js%') | Endpoint.url.like('%app.%js%'))
+        ).first() is not None
+        
+        if has_mainjs:
+            domains_with_mainjs.append(domain)
+    
+    # Check if there's a domain to pre-select
+    selected_domain_id = request.args.get('domain_id')
+    selected_domain = None
+    if selected_domain_id:
+        selected_domain = Domain.query.get(selected_domain_id)
+    
+    return render_template('mainjs_analyzer.html', 
+                          domains=domains_with_mainjs,
+                          selected_domain=selected_domain)
+
+@app.route('/get-mainjs-content/<int:domain_id>')
+def get_mainjs_content(domain_id):
+    domain = Domain.query.get_or_404(domain_id)
+    
+    # Find the main.js endpoint - using improved regex pattern match for main.NNNNN.js
+    mainjs_endpoint = Endpoint.query.filter(
+        Endpoint.domain_id == domain_id,
+        (Endpoint.url.like('%main.%js%') | Endpoint.url.like('%app.%js%'))
+    ).first()
+    
+    if not mainjs_endpoint:
+        return jsonify({"error": "No main.js file found for this domain"}), 404
+    
+    # Fetch the content of main.js
+    try:
+        import requests
+        requests.packages.urllib3.disable_warnings()
+        response = requests.get(mainjs_endpoint.url, timeout=10, verify=False)
+        
+        if response.status_code >= 400:
+            return jsonify({"error": f"Failed to fetch main.js: HTTP {response.status_code}"}), 400
+        
+        return jsonify({
+            "url": mainjs_endpoint.url,
+            "content": response.text
+        })
+    except Exception as e:
+        return jsonify({"error": f"Error fetching main.js: {str(e)}"}), 500
+
+# Domain Scan Link with Modified Routing
+@app.route('/scan-link/<int:domain_id>')
+def scan_link(domain_id):
+    domain = Domain.query.get_or_404(domain_id)
+    scan_type = request.args.get('type', 'basic')
+    
+    if scan_type == 'nuclei':
+        return redirect(url_for('nuclei_scanner_page', 
+                               domain=domain.url, 
+                               autorun='true'))
+    elif scan_type == 'basic':
+        return redirect(url_for('basic_scanner_page', 
+                               domain=domain.url, 
+                               autorun='true'))
+    elif scan_type == 'mainjs':
+        return redirect(url_for('mainjs_analyzer_page', 
+                               domain_id=domain_id))
+    else:
+        return redirect(url_for('basic_scanner_page', 
+                               domain=domain.url, 
+                               autorun='true'))
 
 # API Endpoint Bypass routes
 @app.route('/api-bypass')
@@ -434,16 +487,6 @@ def templates():
                           custom_templates=custom_templates,
                           nuclei_available=True)
 
-# Scan link (for convenient scan from domain details)
-@app.route('/scan-link/<int:domain_id>')
-def scan_link(domain_id):
-    domain = Domain.query.get_or_404(domain_id)
-    return redirect(url_for('scanner_page', 
-                           domain=domain.url, 
-                           autorun='true',
-                           options='cves,vulnerabilities,misconfiguration,exposures,technologies',
-                           severity='critical,high,medium'))
-
 # Add domain route (used internally after scanning)
 @app.route('/add-domain', methods=['POST'])
 def add_domain():
@@ -499,7 +542,7 @@ def classify_vulnerability_route(id):
     """Allow analysts to classify a vulnerability as true or false positive"""
     is_true_positive = request.form.get('is_true_positive', 'false').lower() == 'true'
     
-    result = scanner.classify_vulnerability(id, is_true_positive)
+    result = nuclei_scanner.classify_vulnerability(id, is_true_positive)
     
     if result:
         flash(f"Vulnerability classified as {'TRUE POSITIVE' if is_true_positive else 'FALSE POSITIVE'}", 'success')
