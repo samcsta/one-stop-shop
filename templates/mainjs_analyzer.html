@@ -22,16 +22,42 @@
             <div class="card-body">
                 {% if domains %}
                 <div class="form-group">
-                    <label for="domain-select">Domain with main.js:</label>
-                    <select class="form-control" id="domain-select" onchange="selectDomain(this.value)">
-                        <option value="">-- Select a domain --</option>
-                        {% for domain in domains %}
-                        <option value="{{ domain.id }}" {% if selected_domain and selected_domain.id == domain.id %}selected{% endif %}>
-                            {{ domain.url }}
-                        </option>
-                        {% endfor %}
-                    </select>
+                    <label for="domain-search">Search for domain with main.js:</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="domain-search" 
+                               placeholder="Enter domain name to search"
+                               value="{{ selected_domain.url if selected_domain else '' }}">
+                        <div class="input-group-append">
+                            <button class="btn btn-primary" type="button" onclick="searchDomain()">
+                                <i class="fas fa-search"></i> Search
+                            </button>
+                        </div>
+                    </div>
+                    <small class="form-text text-muted">Type a domain name and click Search</small>
                 </div>
+                
+                <div class="mt-3" id="search-results" style="display: none;">
+                    <h6>Search Results:</h6>
+                    <div id="domain-results" class="list-group">
+                        <!-- Results will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Direct URL input -->
+                <div class="form-group mt-4">
+                    <label for="url-input">Or analyze any URL directly:</label>
+                    <div class="input-group">
+                        <input type="text" class="form-control" id="url-input" 
+                               placeholder="https://example.com">
+                        <div class="input-group-append">
+                            <button class="btn btn-success" type="button" onclick="analyzeURL()">
+                                <i class="fas fa-microscope"></i> Analyze
+                            </button>
+                        </div>
+                    </div>
+                    <small class="form-text text-muted">Enter full URL including http:// or https://</small>
+                </div>
+                
                 {% else %}
                 <div class="alert alert-warning">
                     <i class="fas fa-exclamation-triangle mr-2"></i>
@@ -123,7 +149,7 @@
                 
                 <div id="no-mainjs-message" class="p-5 text-center">
                     <i class="fas fa-code fa-3x text-muted mb-3"></i>
-                    <h5>Select a domain to view main.js</h5>
+                    <h5>Search for a domain to view main.js</h5>
                     <p class="text-muted">The JavaScript file will appear here for analysis.</p>
                 </div>
                 
@@ -146,7 +172,152 @@ let mainJsContent = '';
 let mainJsUrl = '';
 let currentDomainId = null;
 
-// Select domain and load main.js
+// Improved main.js file detection patterns
+const MAIN_JS_PATTERNS = [
+    /main\.[0-9a-f]+\.js/i,  // main.hash.js pattern (webpack)
+    /main[-_]bundle.*\.js/i, // main-bundle.js pattern
+    /main\.js$/i,           // simple main.js
+    /app\.[0-9a-f]+\.js/i,   // app.hash.js pattern
+    /app[-_]bundle.*\.js/i,  // app-bundle.js
+    /app\.js$/i,            // simple app.js
+    /runtime\.[0-9a-f]+\.js/i, // Angular runtime
+    /polyfills\.[0-9a-f]+\.js/i // Angular polyfills
+];
+
+// Domain search and result display
+function searchDomain() {
+    const searchTerm = document.getElementById('domain-search').value.trim().toLowerCase();
+    if (!searchTerm) {
+        alert('Please enter a domain name to search');
+        return;
+    }
+    
+    // Get domain data from the page
+    const domains = [
+        {% for domain in domains %}
+        { id: {{ domain.id }}, url: "{{ domain.url }}" },
+        {% endfor %}
+    ];
+    
+    // Filter domains that match the search term
+    const results = domains.filter(domain => 
+        domain.url.toLowerCase().includes(searchTerm)
+    );
+    
+    // Display results
+    const resultsContainer = document.getElementById('domain-results');
+    const searchResultsSection = document.getElementById('search-results');
+    
+    resultsContainer.innerHTML = '';
+    
+    if (results.length > 0) {
+        searchResultsSection.style.display = 'block';
+        
+        results.forEach(domain => {
+            const domainElement = document.createElement('a');
+            domainElement.className = 'list-group-item list-group-item-action';
+            domainElement.href = '#';
+            domainElement.onclick = function() {
+                selectDomain(domain.id);
+                return false;
+            };
+            domainElement.innerHTML = `
+                <i class="fas fa-globe mr-2"></i> ${domain.url}
+            `;
+            resultsContainer.appendChild(domainElement);
+        });
+    } else {
+        searchResultsSection.style.display = 'block';
+        resultsContainer.innerHTML = `
+            <div class="list-group-item text-muted">
+                No domains found matching "${searchTerm}"
+            </div>
+        `;
+    }
+}
+
+// New function to analyze any URL directly
+function analyzeURL() {
+    const url = document.getElementById('url-input').value.trim();
+    if (!url) {
+        alert('Please enter a URL to analyze');
+        return;
+    }
+    
+    // Ensure URL has protocol
+    let fullUrl = url;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        fullUrl = 'https://' + url;
+    }
+    
+    // Show loading indicator
+    document.getElementById('loading-indicator').style.display = 'block';
+    document.getElementById('no-mainjs-message').style.display = 'none';
+    document.getElementById('mainjs-container').style.display = 'none';
+    
+    // Create a custom endpoint for direct URL analysis
+    fetch('/api/analyze-url', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ url: fullUrl })
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            throw new Error(data.error);
+        }
+        
+        // Hide loading indicator
+        document.getElementById('loading-indicator').style.display = 'none';
+        
+        if (data.mainjs_url && data.mainjs_content) {
+            // Update URL and content
+            mainJsUrl = data.mainjs_url;
+            mainJsContent = data.mainjs_content;
+            
+            // Show analysis card
+            document.getElementById('analysis-card').style.display = 'block';
+            
+            // Update header
+            document.getElementById('mainjs-header').innerHTML = 
+                `<i class="fas fa-file-code mr-2"></i>main.js <small class="text-muted">(${mainJsUrl.split('/').pop()})</small>`;
+            
+            // Display the content
+            document.getElementById('mainjs-container').style.display = 'block';
+            document.getElementById('mainjs-content').textContent = mainJsContent;
+            
+            // Apply syntax highlighting
+            highlightCode();
+            
+            // Show buttons
+            document.getElementById('format-btn').style.display = 'inline-block';
+            document.getElementById('download-btn').style.display = 'inline-block';
+            
+        } else {
+            // Show no main.js found message
+            document.getElementById('no-mainjs-message').style.display = 'block';
+            document.getElementById('no-mainjs-message').innerHTML = `
+                <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+                <h5>No main.js file found</h5>
+                <p class="text-muted">Could not detect a main.js file on this site.</p>
+            `;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('loading-indicator').style.display = 'none';
+        document.getElementById('no-mainjs-message').style.display = 'block';
+        document.getElementById('no-mainjs-message').innerHTML = `
+            <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+            <h5>Error analyzing URL</h5>
+            <p class="text-muted">${error.message}</p>
+        `;
+    });
+}
+
+// Select domain and load main.js - Improved to handle errors better
 function selectDomain(domainId) {
     if (!domainId) {
         // Reset UI if no domain selected
@@ -160,20 +331,26 @@ function selectDomain(domainId) {
     document.getElementById('loading-indicator').style.display = 'block';
     document.getElementById('no-mainjs-message').style.display = 'none';
     document.getElementById('mainjs-container').style.display = 'none';
-    document.getElementById('analysis-card').style.display = 'block';
+    document.getElementById('analysis-card').style.display = 'none';
     document.getElementById('analysis-results').style.display = 'none';
     
-    // Fetch main.js content
+    // Fetch main.js content with improved error handling
     fetch(`/get-mainjs-content/${domainId}`)
         .then(response => {
             if (!response.ok) {
-                throw new Error('Failed to fetch main.js content');
+                return response.json().then(err => {
+                    throw new Error(err.error || `Failed to fetch main.js: HTTP ${response.status}`);
+                });
             }
             return response.json();
         })
         .then(data => {
             // Hide loading indicator
             document.getElementById('loading-indicator').style.display = 'none';
+            
+            if (!data.content || !data.url) {
+                throw new Error('No main.js content found for this domain');
+            }
             
             // Update URL and content
             mainJsUrl = data.url;
@@ -193,6 +370,7 @@ function selectDomain(domainId) {
             // Show buttons
             document.getElementById('format-btn').style.display = 'inline-block';
             document.getElementById('download-btn').style.display = 'inline-block';
+            document.getElementById('analysis-card').style.display = 'block';
             
             // Update URL to include domain ID
             history.replaceState(null, '', `/mainjs-analyzer?domain_id=${domainId}`);
@@ -205,8 +383,82 @@ function selectDomain(domainId) {
                 <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
                 <h5>Error loading main.js</h5>
                 <p class="text-muted">${error.message}</p>
+                <button class="btn btn-primary mt-3" onclick="scanForMainJs(${domainId})">
+                    <i class="fas fa-search mr-1"></i>Try Advanced main.js Detection
+                </button>
             `;
         });
+}
+
+// New function to perform advanced main.js detection for a domain
+function scanForMainJs(domainId) {
+    if (!domainId) return;
+    
+    // Show loading indicator
+    document.getElementById('loading-indicator').style.display = 'block';
+    document.getElementById('no-mainjs-message').style.display = 'none';
+    
+    fetch(`/api/advanced-mainjs-detection/${domainId}`, {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Hide loading indicator
+        document.getElementById('loading-indicator').style.display = 'none';
+        
+        if (data.success && data.mainjs_url) {
+            // If main.js was found, load it
+            mainJsUrl = data.mainjs_url;
+            if (data.mainjs_content) {
+                mainJsContent = data.mainjs_content;
+                
+                // Show content
+                document.getElementById('mainjs-container').style.display = 'block';
+                document.getElementById('mainjs-content').textContent = mainJsContent;
+                document.getElementById('analysis-card').style.display = 'block';
+                
+                // Update header
+                document.getElementById('mainjs-header').innerHTML = 
+                    `<i class="fas fa-file-code mr-2"></i>main.js <small class="text-muted">(${mainJsUrl.split('/').pop()})</small>`;
+                
+                // Apply syntax highlighting
+                highlightCode();
+                
+                // Show buttons
+                document.getElementById('format-btn').style.display = 'inline-block';
+                document.getElementById('download-btn').style.display = 'inline-block';
+            } else {
+                // Found URL but no content
+                document.getElementById('no-mainjs-message').style.display = 'block';
+                document.getElementById('no-mainjs-message').innerHTML = `
+                    <i class="fas fa-check-circle fa-3x text-success mb-3"></i>
+                    <h5>main.js file found but content could not be retrieved</h5>
+                    <p class="text-muted">URL: ${data.mainjs_url}</p>
+                    <a href="${data.mainjs_url}" target="_blank" class="btn btn-primary">
+                        <i class="fas fa-external-link-alt mr-1"></i>Open in New Tab
+                    </a>
+                `;
+            }
+        } else {
+            // No main.js found
+            document.getElementById('no-mainjs-message').style.display = 'block';
+            document.getElementById('no-mainjs-message').innerHTML = `
+                <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+                <h5>No main.js file found</h5>
+                <p class="text-muted">Advanced detection could not find a main.js file.</p>
+            `;
+        }
+    })
+    .catch(error => {
+        console.error('Error:', error);
+        document.getElementById('loading-indicator').style.display = 'none';
+        document.getElementById('no-mainjs-message').style.display = 'block';
+        document.getElementById('no-mainjs-message').innerHTML = `
+            <i class="fas fa-exclamation-triangle fa-3x text-warning mb-3"></i>
+            <h5>Error during advanced detection</h5>
+            <p class="text-muted">${error.message}</p>
+        `;
+    });
 }
 
 // Reset UI to initial state
@@ -268,7 +520,7 @@ function downloadMainJs() {
 
 // Quick analyze main.js
 function quickAnalyze() {
-    if (!mainJsContent || !currentDomainId) return;
+    if (!mainJsContent || (!currentDomainId && !mainJsUrl)) return;
     
     document.getElementById('analysis-results').style.display = 'none';
     
@@ -307,7 +559,7 @@ function searchInMainJs() {
         searchResultsSection.style.display = 'block';
         
         const resultsHtml = results.map(result => `
-                            <div class="alert alert-info py-2 px-3 mb-2">
+            <div class="alert alert-info py-2 px-3 mb-2">
                 <div class="d-flex justify-content-between">
                     <span>Line ${result.line}:</span>
                     <button class="btn btn-sm btn-link p-0" onclick="scrollToLine(${result.line})">Go to line</button>
@@ -377,7 +629,7 @@ function displayAnalysisResults(results) {
     document.getElementById('search-results-section').style.display = 'none';
 }
 
-// Analyze main.js
+// Analyze main.js - Enhanced with patterns from your Angular detector
 function analyzeMainJs(jsContent) {
     const results = {
         api_endpoints: [],
@@ -410,7 +662,7 @@ function analyzeMainJs(jsContent) {
         /routes\[[\'"]([^\'"]*)[\'"]]/
     ];
     
-    // Look for potential secrets
+    // Enhanced secret patterns matching those from your Angular detector
     const secretPatterns = [
         { regex: /(?i)api[_-]?key["\']?\s*[:=]\s*["\']([^"\']{20,})["\']/, type: 'API Key' },
         { regex: /(?i)access[_-]?token["\']?\s*[:=]\s*["\']([^"\']{20,})["\']/, type: 'Access Token' },
@@ -574,14 +826,8 @@ document.addEventListener('DOMContentLoaded', function() {
     const domainId = urlParams.get('domain_id');
     
     if (domainId) {
-        // Select the domain in the dropdown
-        const selectElement = document.getElementById('domain-select');
-        if (selectElement) {
-            selectElement.value = domainId;
-            
-            // Load the domain
-            selectDomain(domainId);
-        }
+        // Select the domain and load the main.js file
+        selectDomain(domainId);
     }
 });
 </script>

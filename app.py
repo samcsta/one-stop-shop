@@ -5,10 +5,14 @@ import shutil
 import random
 import time
 import threading
+import re
+import requests
 from datetime import datetime
+from urllib.parse import urljoin, urlparse
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
 from flask_socketio import SocketIO
 from werkzeug.utils import secure_filename
+from bs4 import BeautifulSoup
 from config import Config
 from models import db, Domain, Technology, Vulnerability, Endpoint, Screenshot
 
@@ -36,6 +40,18 @@ os.makedirs(app.config['WORDLISTS_FOLDER'], exist_ok=True)
 
 # Custom template directories
 os.makedirs(os.path.join(os.getcwd(), 'custom-templates'), exist_ok=True)
+
+# Define patterns for main.js detection
+MAIN_JS_PATTERNS = [
+    r'main\.[0-9a-f]+\.js',  # main.hash.js pattern (webpack)
+    r'main[-_]bundle.*\.js',  # main-bundle.js pattern
+    r'main\.js$',            # simple main.js
+    r'app\.[0-9a-f]+\.js',    # app.hash.js pattern
+    r'app[-_]bundle.*\.js',   # app-bundle.js
+    r'app\.js$',             # simple app.js
+    r'runtime\.[0-9a-f]+\.js', # Angular runtime
+    r'polyfills\.[0-9a-f]+\.js' # Angular polyfills
+]
 
 # Instead of @app.before_first_request, we'll create all tables at startup
 with app.app_context():
@@ -317,19 +333,48 @@ def run_nuclei_scan():
     
     return jsonify(result)
 
-# Main.js Analysis Routes
+# Ensure URL has a protocol
+def ensure_protocol(url):
+    """Ensure the URL has a protocol (http or https)."""
+    if not url.startswith(("http://", "https://")):
+        return f"https://{url}"
+    return url
+
+# Main.js Analyzer Routes
 @app.route('/mainjs-analyzer')
 def mainjs_analyzer_page():
-    # Get domains with main.js files
+    # Get domains with main.js files using improved detection
     domains_with_mainjs = []
     domains = Domain.query.all()
     
     for domain in domains:
-        # Check if any endpoint for this domain contains main.js
-        has_mainjs = Endpoint.query.filter(
-            Endpoint.domain_id == domain.id,
-            (Endpoint.url.like('%main.%js%') | Endpoint.url.like('%app.%js%'))
-        ).first() is not None
+        # Check if any endpoint for this domain matches main.js patterns
+        has_mainjs = False
+        
+        for pattern in MAIN_JS_PATTERNS:
+            # Try to use the proper regex query if supported by database
+            try:
+                endpoint = Endpoint.query.filter_by(domain_id=domain.id).filter(
+                    Endpoint.url.op('regexp')(pattern)
+                ).first()
+                
+                if endpoint:
+                    has_mainjs = True
+                    break
+            except:
+                # Fallback to basic pattern matching
+                endpoints = Endpoint.query.filter_by(domain_id=domain.id).all()
+                for endpoint in endpoints:
+                    if re.search(pattern, endpoint.url, re.IGNORECASE):
+                        has_mainjs = True
+                        break
+        
+        # If no match found with regex patterns, fall back to simple LIKE query
+        if not has_mainjs:
+            has_mainjs = Endpoint.query.filter(
+                Endpoint.domain_id == domain.id,
+                (Endpoint.url.like('%main.%js%') | Endpoint.url.like('%app.%js%'))
+            ).first() is not None
         
         if has_mainjs:
             domains_with_mainjs.append(domain)
@@ -348,19 +393,46 @@ def mainjs_analyzer_page():
 def get_mainjs_content(domain_id):
     domain = Domain.query.get_or_404(domain_id)
     
-    # Find the main.js endpoint - using improved regex pattern match for main.NNNNN.js
-    mainjs_endpoint = Endpoint.query.filter(
-        Endpoint.domain_id == domain_id,
-        (Endpoint.url.like('%main.%js%') | Endpoint.url.like('%app.%js%'))
-    ).first()
+    # Find the main.js endpoint using improved detection 
+    # First check for various main.js filename patterns
+    mainjs_endpoint = None
+    
+    # Try to use regex-based detection if the database supports it
+    try:
+        for pattern in MAIN_JS_PATTERNS:
+            endpoint = Endpoint.query.filter_by(domain_id=domain_id).filter(
+                Endpoint.url.op('regexp')(pattern)
+            ).first()
+            
+            if endpoint:
+                mainjs_endpoint = endpoint
+                break
+    except:
+        # Fallback to basic pattern matching without regex
+        endpoints = Endpoint.query.filter_by(domain_id=domain_id).all()
+        for endpoint in endpoints:
+            for pattern in MAIN_JS_PATTERNS:
+                if re.search(pattern, endpoint.url, re.IGNORECASE):
+                    mainjs_endpoint = endpoint
+                    break
+            if mainjs_endpoint:
+                break
+    
+    # If no main.js found with pattern matching, try original approach
+    if not mainjs_endpoint:
+        mainjs_endpoint = Endpoint.query.filter(
+            Endpoint.domain_id == domain_id,
+            (Endpoint.url.like('%main.%js%') | Endpoint.url.like('%app.%js%'))
+        ).first()
     
     if not mainjs_endpoint:
         return jsonify({"error": "No main.js file found for this domain"}), 404
     
     # Fetch the content of main.js
     try:
-        import requests
+        # Disable SSL warnings
         requests.packages.urllib3.disable_warnings()
+        
         response = requests.get(mainjs_endpoint.url, timeout=10, verify=False)
         
         if response.status_code >= 400:
@@ -372,6 +444,240 @@ def get_mainjs_content(domain_id):
         })
     except Exception as e:
         return jsonify({"error": f"Error fetching main.js: {str(e)}"}), 500
+
+@app.route('/api/analyze-url', methods=['POST'])
+def analyze_url():
+    """Analyze any URL for main.js files"""
+    data = request.json
+    if not data or 'url' not in data:
+        return jsonify({"error": "URL is required"}), 400
+    
+    url = ensure_protocol(data['url'])
+    
+    try:
+        # First, try to find main.js files through HTML analysis
+        main_js_url = find_mainjs_in_html(url)
+        
+        if main_js_url:
+            # If found, try to fetch the content
+            try:
+                response = requests.get(main_js_url, timeout=15, verify=False)
+                if response.status_code == 200:
+                    return jsonify({
+                        "success": True,
+                        "mainjs_url": main_js_url,
+                        "mainjs_content": response.text
+                    })
+                else:
+                    return jsonify({
+                        "success": True,
+                        "mainjs_url": main_js_url,
+                        "mainjs_content": None,
+                        "error": f"Could not fetch main.js content (status code: {response.status_code})"
+                    })
+            except Exception as e:
+                return jsonify({
+                    "success": True,
+                    "mainjs_url": main_js_url,
+                    "mainjs_content": None,
+                    "error": f"Error fetching main.js content: {str(e)}"
+                })
+        
+        # If no main.js found through HTML, return error
+        return jsonify({
+            "success": False,
+            "error": "No main.js file found on this site"
+        })
+    
+    except Exception as e:
+        return jsonify({
+            "error": f"Error analyzing URL: {str(e)}"
+        }), 500
+
+@app.route('/api/advanced-mainjs-detection/<int:domain_id>', methods=['POST'])
+def advanced_mainjs_detection(domain_id):
+    """
+    Advanced main.js detection for a domain.
+    This route tries to find main.js file for a domain using
+    enhanced detection techniques similar to your Angular detector.
+    """
+    # Get domain from database
+    domain = Domain.query.get_or_404(domain_id)
+    
+    if not domain:
+        return jsonify({"error": "Domain not found"}), 404
+    
+    url = f"https://{domain.url}"
+    
+    try:
+        # Try to find main.js in the HTML
+        main_js_url = find_mainjs_in_html(url)
+        
+        if main_js_url:
+            # If main.js found, try to fetch its content
+            try:
+                response = requests.get(main_js_url, timeout=15, verify=False)
+                if response.status_code == 200:
+                    # Add the endpoint to the database if it doesn't exist
+                    parsed = urlparse(main_js_url)
+                    path = parsed.path
+                    
+                    # Check if endpoint exists
+                    existing_endpoint = Endpoint.query.filter_by(
+                        domain_id=domain.id,
+                        url=main_js_url
+                    ).first()
+                    
+                    if not existing_endpoint:
+                        # Add new endpoint to database
+                        endpoint = Endpoint(
+                            domain_id=domain.id,
+                            url=main_js_url,
+                            path=path,
+                            status_code=response.status_code,
+                            content_type='application/javascript',
+                            is_interesting=True,
+                            notes="Detected main.js file"
+                        )
+                        db.session.add(endpoint)
+                        db.session.commit()
+                    
+                    return jsonify({
+                        "success": True,
+                        "mainjs_url": main_js_url,
+                        "mainjs_content": response.text,
+                        "endpoint_added": not existing_endpoint
+                    })
+                else:
+                    return jsonify({
+                        "success": True,
+                        "mainjs_url": main_js_url,
+                        "mainjs_content": None,
+                        "error": f"Could not fetch main.js content (status code: {response.status_code})"
+                    })
+            except Exception as e:
+                return jsonify({
+                    "success": True,
+                    "mainjs_url": main_js_url,
+                    "mainjs_content": None,
+                    "error": f"Error fetching main.js content: {str(e)}"
+                })
+        
+        # If no main.js found through standard analysis, check endpoints table
+        main_js_endpoint = find_mainjs_in_endpoints(domain_id)
+        if main_js_endpoint:
+            try:
+                response = requests.get(main_js_endpoint.url, timeout=15, verify=False)
+                if response.status_code == 200:
+                    return jsonify({
+                        "success": True,
+                        "mainjs_url": main_js_endpoint.url,
+                        "mainjs_content": response.text
+                    })
+                else:
+                    return jsonify({
+                        "success": True,
+                        "mainjs_url": main_js_endpoint.url,
+                        "mainjs_content": None
+                    })
+            except Exception as e:
+                return jsonify({
+                    "success": True,
+                    "mainjs_url": main_js_endpoint.url,
+                    "mainjs_content": None,
+                    "error": str(e)
+                })
+        
+        # No main.js found
+        return jsonify({
+            "success": False,
+            "error": "No main.js file found for this domain"
+        })
+    
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Error during advanced main.js detection: {str(e)}"
+        }), 500
+
+def find_mainjs_in_html(url):
+    """
+    Scan a website's HTML for main.js files by:
+    1. Analyzing <script> tags with src attributes
+    2. Looking for patterns matching main.js variants
+    3. Returning the full URL to the first main.js file found
+    """
+    try:
+        # Disable SSL warnings
+        requests.packages.urllib3.disable_warnings()
+        
+        # Get the HTML content
+        response = requests.get(url, timeout=15, verify=False, allow_redirects=True)
+        if response.status_code != 200:
+            return None
+        
+        # Parse with BeautifulSoup
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Find script tags with src attribute
+        for script in soup.find_all('script', src=True):
+            script_url = script['src']
+            
+            # Check if the script matches any main.js pattern
+            for pattern in MAIN_JS_PATTERNS:
+                if re.search(pattern, script_url, re.IGNORECASE):
+                    # Convert relative URL to absolute
+                    if not script_url.startswith(('http://', 'https://')):
+                        script_url = urljoin(url, script_url)
+                    
+                    return script_url
+        
+        return None
+    
+    except Exception as e:
+        print(f"Error in find_mainjs_in_html: {str(e)}")
+        return None
+
+def find_mainjs_in_endpoints(domain_id):
+    """
+    Check if we've already discovered a main.js file for this domain
+    in the endpoints table
+    """
+    # Look for endpoints with main.js in the URL
+    try:
+        main_js_endpoints = []
+        
+        # Try regex-based detection if supported by the database
+        try:
+            for pattern in MAIN_JS_PATTERNS:
+                # Query for each pattern
+                endpoints = Endpoint.query.filter_by(domain_id=domain_id).filter(
+                    Endpoint.url.op('regexp')(pattern)
+                ).all()
+                
+                main_js_endpoints.extend(endpoints)
+        except:
+            # Fallback to iterative checking if regex not supported
+            all_endpoints = Endpoint.query.filter_by(domain_id=domain_id).all()
+            for endpoint in all_endpoints:
+                for pattern in MAIN_JS_PATTERNS:
+                    if re.search(pattern, endpoint.url, re.IGNORECASE):
+                        main_js_endpoints.append(endpoint)
+                        break
+        
+        # If endpoints found, return the first one
+        if main_js_endpoints:
+            return main_js_endpoints[0]
+        
+        # Try the original LIKE query as a last resort
+        return Endpoint.query.filter(
+            Endpoint.domain_id == domain_id,
+            (Endpoint.url.like('%main.%js%') | Endpoint.url.like('%app.%js%'))
+        ).first()
+    
+    except Exception as e:
+        print(f"Error in find_mainjs_in_endpoints: {str(e)}")
+        return None
 
 # Domain Scan Link with Modified Routing
 @app.route('/scan-link/<int:domain_id>')

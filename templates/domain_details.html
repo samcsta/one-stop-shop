@@ -33,7 +33,14 @@
             <a href="{{ url_for('nuclei_scanner_page') }}?domain={{ domain.url }}&autorun=true" class="btn btn-info">
                 <i class="fas fa-radiation mr-1"></i>Nuclei Scan
             </a>
-            {% if domain.endpoints and domain.endpoints|selectattr('url', 'search', 'main')|selectattr('url', 'search', '.js')|list|length > 0 %}
+            {% set has_main_js = false %}
+            {% for endpoint in domain.endpoints %}
+                {% if 'main' in endpoint.url and '.js' in endpoint.url %}
+                    {% set has_main_js = true %}
+                {% endif %}
+            {% endfor %}
+            
+            {% if domain.endpoints and has_main_js %}
             <a href="{{ url_for('mainjs_analyzer_page') }}?domain_id={{ domain.id }}" class="btn btn-warning">
                 <i class="fas fa-code mr-1"></i>Analyze main.js
             </a>
