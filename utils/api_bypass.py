@@ -4,13 +4,24 @@ import subprocess
 import requests
 import re
 import json
+from urllib.parse import urljoin
 from flask import current_app
+from models import db, Domain, APIBypass
+from datetime import datetime
 
-def run_bypass(domain, wordlist_path):
+def run_bypass(domain, wordlist_path, domain_id=None):
     """
     Run 403 bypass tests against a domain using the specified wordlist
     This function reimplements the functionality of bypass-403.sh in Python
-    to make it cross-platform compatible
+    to make it cross-platform compatible and integrates with the database
+    
+    Args:
+        domain (str): The domain to test
+        wordlist_path (str): Path to the wordlist file
+        domain_id (int, optional): Domain ID for database integration
+    
+    Returns:
+        dict: Results of the bypass test
     """
     # Check if we should try to use the script on supported platforms (Linux/Mac)
     try_bash_script = False
@@ -25,12 +36,14 @@ def run_bypass(domain, wordlist_path):
                 pass
 
     if try_bash_script:
-        return run_bash_script(domain, wordlist_path)
+        return run_bash_script(domain, wordlist_path, domain_id)
     else:
-        return run_python_bypass(domain, wordlist_path)
+        return run_python_bypass(domain, wordlist_path, domain_id)
 
-def run_bash_script(domain, wordlist_path):
-    """Run the original bash script on Linux/Mac"""
+def run_bash_script(domain, wordlist_path, domain_id=None):
+    """
+    Run the original bash script on Linux/Mac and integrate with database if domain_id provided
+    """
     script_path = os.path.join(current_app.root_path, 'bypass-403.sh')
     
     try:
@@ -53,6 +66,10 @@ def run_bash_script(domain, wordlist_path):
         
         recommendations = generate_recommendations(domain, successful_bypasses)
         
+        # Store results in database if domain_id is provided
+        if domain_id and successful_bypasses:
+            store_successful_bypasses(domain_id, domain, successful_bypasses, recommendations)
+        
         return {
             "domain": domain,
             "wordlist": os.path.basename(wordlist_path),
@@ -69,8 +86,11 @@ def run_bash_script(domain, wordlist_path):
             "error": str(e)
         }
 
-def run_python_bypass(domain, wordlist_path):
-    """Reimplement bypass-403.sh in Python for Windows compatibility"""
+def run_python_bypass(domain, wordlist_path, domain_id=None):
+    """
+    Reimplement bypass-403.sh in Python for Windows compatibility
+    and integrate with database if domain_id provided
+    """
     if not os.path.exists(wordlist_path):
         return {
             "domain": domain,
@@ -236,6 +256,10 @@ def run_python_bypass(domain, wordlist_path):
         clean_bypass = bypass.replace("<200>", "")
         display_bypasses.append(clean_bypass)
     
+    # Store results in database if domain_id is provided
+    if domain_id and successful_bypasses:
+        store_successful_bypasses(domain_id, domain, successful_bypasses, recommendations)
+    
     return {
         "domain": domain,
         "wordlist": os.path.basename(wordlist_path),
@@ -280,3 +304,75 @@ def generate_recommendations(domain, successful_bypasses):
     recommendations.append("Consider checking if the bypass works with authenticated sessions by including any necessary cookies or auth headers.")
     
     return "\n".join(recommendations)
+
+def store_successful_bypasses(domain_id, domain_url, successful_bypasses, recommendations):
+    """
+    Store successful bypasses in the database
+    
+    Args:
+        domain_id (int): The domain ID
+        domain_url (str): The domain URL
+        successful_bypasses (list): List of successful bypass strings
+        recommendations (str): Recommendations text
+    """
+    try:
+        # Get the domain object
+        domain = Domain.query.get(domain_id)
+        if not domain:
+            print(f"Error: Domain with ID {domain_id} not found")
+            return False
+        
+        # Process each successful bypass
+        for bypass in successful_bypasses:
+            # Parse bypass information
+            parts = bypass.split("-->")
+            if len(parts) >= 2:
+                status_size = parts[0].strip()
+                method = parts[1].strip()
+                
+                # Extract the status code and size
+                status_code = status_size.split(',')[0].replace("<200>", "200")
+                
+                # Create curl command for reproduction
+                if '-H' in method:
+                    # It's a header-based bypass
+                    url_part = method.split('-H')[0].strip()
+                    header_part = '-H ' + method.split('-H')[1].strip()
+                    curl_command = f"curl -i {url_part} {header_part}"
+                elif '-X' in method:
+                    # It's a method-based bypass
+                    url_part = method.split('-X')[0].strip()
+                    method_part = '-X ' + method.split('-X')[1].strip()
+                    curl_command = f"curl -i {url_part} {method_part}"
+                else:
+                    # It's a URL-based bypass
+                    curl_command = f"curl -i {method}"
+                
+                # Check if this bypass already exists in the database
+                existing_bypass = APIBypass.query.filter_by(
+                    domain_id=domain_id,
+                    endpoint=domain_url,
+                    method=method
+                ).first()
+                
+                # Only add if it doesn't exist
+                if not existing_bypass:
+                    # Create new APIBypass record
+                    api_bypass = APIBypass(
+                        domain_id=domain_id,
+                        endpoint=domain_url,
+                        method=method,
+                        curl_command=curl_command,
+                        response=f"Status: {status_code}",
+                        notes=f"Found using automated bypass test. {recommendations}"
+                    )
+                    
+                    db.session.add(api_bypass)
+        
+        # Commit all changes
+        db.session.commit()
+        return True
+    except Exception as e:
+        print(f"Error storing API bypass results: {str(e)}")
+        db.session.rollback()
+        return False

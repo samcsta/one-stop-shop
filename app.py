@@ -14,7 +14,7 @@ from flask_socketio import SocketIO
 from werkzeug.utils import secure_filename
 from bs4 import BeautifulSoup
 from config import Config
-from models import db, Domain, Technology, Vulnerability, Endpoint, Screenshot
+from models import db, Domain, Technology, Vulnerability, Endpoint, Screenshot, APIBypass
 
 # Import the separated scanner modules instead of a single scanner file
 import utils.basic_scanner as basic_scanner
@@ -178,6 +178,9 @@ def delete_domain(id):
     
     # Delete associated endpoints
     Endpoint.query.filter_by(domain_id=id).delete()
+    
+    # Delete associated API bypasses
+    APIBypass.query.filter_by(domain_id=id).delete()
     
     # Store the domain URL for the flash message
     domain_url = domain.url
@@ -714,16 +717,23 @@ def api_bypass_page():
     # Check if there's a domain to pre-fill from the query string
     domain_to_test = request.args.get('domain', '')
     
+    # Get domain_id if it exists
+    domain_id = request.args.get('domain_id')
+    
     # Ensure it has https:// prefix
     if domain_to_test and not domain_to_test.startswith(('http://', 'https://')):
         domain_to_test = 'https://' + domain_to_test
     
-    return render_template('api_bypass.html', wordlists=wordlists, domain_to_test=domain_to_test)
+    return render_template('api_bypass.html', 
+                          wordlists=wordlists, 
+                          domain_to_test=domain_to_test,
+                          domain_id=domain_id)
 
 @app.route('/run-bypass', methods=['POST'])
 def run_bypass():
     domain = request.form.get('domain')
     wordlist = request.form.get('wordlist')
+    domain_id = request.form.get('domain_id')  # Get domain ID if available
     
     if not domain or not wordlist:
         return jsonify({"error": "Domain and wordlist are required"}), 400
@@ -732,8 +742,59 @@ def run_bypass():
     wordlist_path = os.path.join(app.config['WORDLISTS_FOLDER'], wordlist)
     
     # Run the bypass script
-    result = api_bypass.run_bypass(domain, wordlist_path)
+    result = api_bypass.run_bypass(domain, wordlist_path, domain_id)
     return jsonify(result)
+
+@app.route('/api-bypass/store/<int:domain_id>', methods=['POST'])
+def store_api_bypass(domain_id):
+    """Store API bypass results for a domain"""
+    domain = Domain.query.get_or_404(domain_id)
+    
+    # Get data from the API bypass test
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    for bypass in data.get('successful_bypasses', []):
+        # Parse bypass information
+        parts = bypass.split('-->')
+        if len(parts) == 2:
+            status_size = parts[0].strip()
+            method = parts[1].strip()
+            
+            # Create new APIBypass record
+            api_bypass = APIBypass(
+                domain_id=domain.id,
+                endpoint=data.get('domain', ''),
+                method=method,
+                curl_command=f"curl {method}",
+                response=f"Status: {status_size}",
+                notes=data.get('recommendations', '')
+            )
+            
+            db.session.add(api_bypass)
+    
+    db.session.commit()
+    return jsonify({"success": True, "message": "API bypass results stored"})
+
+@app.route('/domain/<int:id>/api-bypass', methods=['POST'])
+def add_api_bypass(id):
+    """Manually add API bypass result"""
+    domain = Domain.query.get_or_404(id)
+    
+    api_bypass = APIBypass(
+        domain_id=domain.id,
+        endpoint=request.form.get('endpoint', ''),
+        method=request.form.get('method', ''),
+        curl_command=request.form.get('curl_command', ''),
+        notes=request.form.get('notes', '')
+    )
+    
+    db.session.add(api_bypass)
+    db.session.commit()
+    
+    flash('API bypass added successfully!', 'success')
+    return redirect(url_for('domain_details', id=id))
 
 # Templates management
 @app.route('/templates', methods=['GET', 'POST'])
@@ -887,6 +948,18 @@ def update_endpoint(id):
     
     flash('Endpoint updated successfully!', 'success')
     return redirect(url_for('domain_details', id=endpoint.domain_id))
+
+# API Bypass management routes
+@app.route('/api-bypass/<int:id>/delete', methods=['POST'])
+def delete_api_bypass(id):
+    bypass = APIBypass.query.get_or_404(id)
+    domain_id = bypass.domain_id
+    
+    db.session.delete(bypass)
+    db.session.commit()
+    
+    flash('API bypass deleted successfully!', 'success')
+    return redirect(url_for('domain_details', id=domain_id))
 
 # Screenshot management
 @app.route('/screenshot/<int:id>/delete', methods=['POST'])

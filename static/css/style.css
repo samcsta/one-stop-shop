@@ -613,3 +613,183 @@ code {
 .loading {
     animation: pulse 1.5s infinite;
 }
+
+/* NEW STYLES FOR REDESIGNED DOMAIN DETAILS PAGE */
+
+/* Tech badge for technology cloud */
+.tech-badge-lg {
+    display: inline-block;
+    background-color: var(--primary-light);
+    color: var(--primary);
+    padding: 8px 15px;
+    border-radius: 30px;
+    font-size: 1rem;
+    margin-right: 8px;
+    margin-bottom: 8px;
+    transition: all 0.3s;
+}
+
+.tech-badge-lg:hover {
+    background-color: var(--primary);
+    color: white;
+    transform: translateY(-2px);
+}
+
+/* Tech cloud container */
+.tech-cloud {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+/* Improve tab styling */
+.nav-tabs .nav-link {
+    border: 1px solid transparent;
+    border-top-left-radius: .25rem;
+    border-top-right-radius: .25rem;
+    padding: .75rem 1rem;
+}
+
+.nav-tabs .nav-link.active {
+    color: var(--primary);
+    border-color: #dee2e6 #dee2e6 #fff;
+    border-bottom-width: 2px;
+    border-bottom-color: var(--primary);
+    font-weight: 600;
+}
+
+/* Progress bar colorful */
+.progress .severity-critical {
+    background-color: #9c27b0;
+}
+
+.progress .severity-high {
+    background-color: var(--danger);
+}
+
+.progress .severity-medium {
+    background-color: var(--warning);
+}
+
+.progress .severity-low {
+    background-color: var(--info);
+}
+
+/* Small colored circle indicators */
+i.severity-critical {
+    color: #9c27b0;
+}
+
+i.severity-high {
+    color: var(--danger);
+}
+
+i.severity-medium {
+    color: var(--warning);
+}
+
+i.severity-low {
+    color: var(--info);
+}
+
+/* API Bypass specific styles */
+.api-bypass-item {
+    border-left: 4px solid var(--success);
+    background-color: rgba(68, 201, 123, 0.1);
+    padding: 15px;
+    border-radius: 5px;
+    margin-bottom: 15px;
+}
+
+.api-bypass-method {
+    font-family: 'Courier New', monospace;
+    background-color: #1e1e1e;
+    color: #f8f8f2;
+    padding: 8px 12px;
+    border-radius: 4px;
+    display: inline-block;
+    margin-bottom: 10px;
+}
+
+.api-bypass-details {
+    margin-top: 10px;
+    font-size: 0.9rem;
+}
+
+.api-bypass-curl {
+    font-family: 'Courier New', monospace;
+    white-space: pre-wrap;
+    word-break: break-all;
+    background-color: #1e1e1e;
+    color: #f8f8f2;
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 10px;
+}
+
+/* Filter buttons for vulnerability severity */
+.filter-vuln {
+    margin-right: 5px;
+    margin-bottom: 5px;
+}
+
+.filter-vuln.active {
+    font-weight: 500;
+}
+
+/* Vulnerability and endpoint tables */
+#vulnerabilities-table, #endpoints-table {
+    margin-bottom: 0;
+}
+
+/* Tab content container */
+.tab-content {
+    background-color: #fff;
+    border-radius: 0 0 10px 10px;
+}
+
+/* Enhance forms in tabs */
+.tab-pane .form-control {
+    background-color: #f8f9fa;
+}
+
+.tab-pane .form-control:focus {
+    background-color: #fff;
+}
+
+/* Vulnerability Summary Card */
+.stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    text-align: center;
+}
+
+/* Date badges */
+.date-badge {
+    background-color: var(--primary-light);
+    color: var(--primary);
+    font-size: 0.75rem;
+    padding: 3px 8px;
+    border-radius: 15px;
+}
+
+/* Scrollable pre blocks in modals */
+.modal-body pre {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+/* Enhance tab navigation on smaller screens */
+@media (max-width: 768px) {
+    .nav-tabs {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .nav-tabs .nav-link {
+        white-space: nowrap;
+        padding: .5rem .75rem;
+    }
+}

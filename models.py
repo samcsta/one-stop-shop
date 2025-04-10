@@ -24,7 +24,8 @@ class Domain(db.Model):
     screenshots = db.relationship('Screenshot', backref='domain', lazy=True)
     technologies = db.relationship('Technology', secondary=tags, lazy='subquery',
         backref=db.backref('domains', lazy=True))
-    endpoints = db.relationship('Endpoint', backref='domain', lazy=True)  # New relationship
+    endpoints = db.relationship('Endpoint', backref='domain', lazy=True)
+    api_bypasses = db.relationship('APIBypass', backref='domain', lazy=True)  # New relationship
 
     def __repr__(self):
         return f'<Domain {self.url}>'
@@ -48,8 +49,8 @@ class Vulnerability(db.Model):
     location = db.Column(db.String(255), nullable=True)
     evidence = db.Column(db.Text, nullable=True)
     date_discovered = db.Column(db.DateTime, default=datetime.utcnow)
-    last_updated = db.Column(db.DateTime, nullable=True)  # New field for tracking updates
-    status = db.Column(db.String(20), default=None)  # New field: NULL/CONFIRMED/DISMISSED
+    last_updated = db.Column(db.DateTime, nullable=True)  # Field for tracking updates
+    status = db.Column(db.String(20), default=None)  # Field: NULL/CONFIRMED/DISMISSED
     
     def __repr__(self):
         return f'<Vulnerability {self.title}>'
@@ -74,7 +75,7 @@ class Screenshot(db.Model):
     def __repr__(self):
         return f'<Screenshot {self.filename}>'
 
-# New model for tracking discovered endpoints
+# Model for tracking discovered endpoints
 class Endpoint(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     domain_id = db.Column(db.Integer, db.ForeignKey('domain.id'), nullable=False)
@@ -100,3 +101,17 @@ class Endpoint(db.Model):
     def is_protected(self):
         """Check if the endpoint is protected (401 or 403)"""
         return self.status_code in (401, 403)
+
+# New model for API Endpoint Bypass results
+class APIBypass(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    domain_id = db.Column(db.Integer, db.ForeignKey('domain.id'), nullable=False)
+    endpoint = db.Column(db.String(512), nullable=False)  # Target endpoint
+    method = db.Column(db.String(255), nullable=False)  # Bypass method used
+    curl_command = db.Column(db.Text, nullable=True)  # CURL command for reproduction
+    response = db.Column(db.Text, nullable=True)  # Response from the server
+    notes = db.Column(db.Text, nullable=True)  # Additional notes
+    date_tested = db.Column(db.DateTime, default=datetime.utcnow)
+    
+    def __repr__(self):
+        return f'<APIBypass {self.endpoint}>'
