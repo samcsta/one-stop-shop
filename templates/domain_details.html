@@ -38,7 +38,6 @@
                     <i class="fas fa-radiation mr-1"></i>Nuclei Scan
                 </a>
                 {% if domain.status == 'ACTIVE' %}
-                {# ***** MODIFIED LINE BELOW ***** #}
                 <a class="dropdown-item" href="{{ url_for('api_bypass_page') }}?domain=https://{{ domain.url }}&domain_id={{ domain.id }}">
                     <i class="fas fa-key mr-1"></i>API Bypass
                 </a>
@@ -320,7 +319,6 @@
                         <a href="{{ url_for('nuclei_scanner_page') }}?domain={{ domain.url }}&autorun=true" class="btn btn-info btn-block mb-2">
                             <i class="fas fa-radiation mr-1"></i>Nuclei Scan
                         </a>
-                        {# ***** MODIFIED LINK BELOW ***** #}
                         <a href="{{ url_for('api_bypass_page') }}?domain=https://{{ domain.url }}&domain_id={{ domain.id }}" class="btn btn-dark btn-block mb-2">
                             <i class="fas fa-key mr-1"></i>API Bypass Test
                         </a>
@@ -383,7 +381,6 @@
                             <tr>
                                 <th>Title</th>
                                 <th>Severity</th>
-                                <th>Status</th>
                                 <th>CWE/CVE</th>
                                 <th>Location</th>
                                 <th>Date</th>
@@ -398,26 +395,19 @@
                                     <span class="severity-{{ vuln.severity|lower }}">{{ vuln.severity }}</span>
                                 </td>
                                 <td>
-                                    {% if vuln.status == 'CONFIRMED' %}
-                                    <span class="badge badge-success">Confirmed</span>
-                                    {% elif vuln.status == 'DISMISSED' %}
-                                    <span class="badge badge-secondary">Dismissed</span>
-                                    {% else %}
-                                    <span class="badge badge-warning">Unclassified</span>
-                                    {% endif %}
-                                </td>
-                                <td>
-                                    {% if vuln.cwe %}CWE: {{ vuln.cwe }}{% endif %}
-                                    {% if vuln.cve %}{% if vuln.cwe %}<br>{% endif %}CVE: {{ vuln.cve }}{% endif %}
+                                    {% if vuln.cwe %}{{ vuln.cwe }}{% endif %}
+                                    {% if vuln.cve %}{% if vuln.cwe %}<br>{% endif %}{{ vuln.cve }}{% endif %}
                                     {% if not vuln.cwe and not vuln.cve %}-{% endif %}
                                 </td>
-                                <td>{{ vuln.location }}</td>
+                                <td>
+                                    <a href="#" onclick="inspectLocation('{{ vuln.location }}', '{{ vuln.title }}', '{{ vuln.id }}'); return false;" 
+                                      title="Click to inspect location details">
+                                        {{ vuln.location }}
+                                    </a>
+                                </td>
                                 <td>{{ vuln.date_discovered.strftime('%Y-%m-%d') }}</td>
                                 <td>
                                     <div class="btn-group">
-                                        <button class="btn btn-sm btn-info" data-toggle="modal" data-target="#vuln-modal-{{ vuln.id }}">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
                                         <form action="{{ url_for('delete_vulnerability', id=vuln.id) }}" method="post" onsubmit="return confirm('Are you sure you want to delete this vulnerability?');">
                                             <button type="submit" class="btn btn-sm btn-danger">
                                                 <i class="fas fa-trash"></i>
@@ -442,10 +432,10 @@
                                                     <p><strong>Severity:</strong> <span class="severity-{{ vuln.severity|lower }}">{{ vuln.severity }}</span></p>
                                                 </div>
                                                 <div class="col-md-4">
-                                                    <p><strong>CWE:</strong> {{ vuln.cwe or 'None' }}</p>
+                                                    <p><strong>{{ vuln.cwe or 'None' }}</strong></p>
                                                 </div>
                                                 <div class="col-md-4">
-                                                    <p><strong>CVE:</strong> {{ vuln.cve or 'None' }}</p>
+                                                    <p><strong>{{ vuln.cve or 'None' }}</strong></p>
                                                 </div>
                                             </div>
                                             
@@ -467,12 +457,39 @@
                                                 
                                                 <div class="form-group">
                                                     <label><strong>Location</strong></label>
-                                                    <p>{{ vuln.location }}</p>
+                                                    <div class="input-group">
+                                                        <input type="text" class="form-control" value="{{ vuln.location }}" readonly>
+                                                        <div class="input-group-append">
+                                                            <a href="{{ vuln.location }}" target="_blank" class="btn btn-outline-primary">
+                                                                <i class="fas fa-external-link-alt"></i> Open
+                                                            </a>
+                                                            {% if 'javascript' in vuln.evidence|lower or '.js' in vuln.location|lower %}
+                                                            <a href="{{ url_for('mainjs_analyzer_page') }}?url={{ vuln.location }}" 
+                                                               class="btn btn-outline-warning" target="_blank">
+                                                                <i class="fas fa-code"></i> Analyze JS
+                                                            </a>
+                                                            {% endif %}
+                                                        </div>
+                                                    </div>
                                                 </div>
                                                 
                                                 <div class="form-group">
                                                     <label><strong>Evidence</strong></label>
-                                                    <pre class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow-y: auto;"><code>{{ vuln.evidence or 'No evidence provided' }}</code></pre>
+                                                    {% if vuln.evidence %}
+                                                    <div class="mt-2">
+                                                        <button class="btn btn-sm btn-info" type="button" data-toggle="collapse" 
+                                                                data-target="#evidenceCollapse{{ vuln.id }}">
+                                                            <i class="fas fa-search-plus mr-1"></i>View Evidence
+                                                        </button>
+                                                        <div class="collapse mt-2" id="evidenceCollapse{{ vuln.id }}">
+                                                            <div class="card card-body">
+                                                                <pre class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow-y: auto;"><code>{{ vuln.evidence or 'No evidence provided' }}</code></pre>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    {% else %}
+                                                    <pre class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow-y: auto;"><code>No evidence provided</code></pre>
+                                                    {% endif %}
                                                 </div>
                                                 
                                                 <div class="form-group">
@@ -602,9 +619,15 @@
                                             <i class="fas fa-eye"></i>
                                         </button>
                                         {% if endpoint.status_code == 403 %}
-                                        {# ***** MODIFIED LINK BELOW ***** #}
                                         <a href="{{ url_for('api_bypass_page') }}?domain={{ endpoint.url }}&domain_id={{ domain.id }}" class="btn btn-sm btn-dark">
                                             <i class="fas fa-key"></i>
+                                        </a>
+                                        {% endif %}
+                                        
+                                        {% if 'javascript' in endpoint.content_type|lower or '.js' in endpoint.url|lower %}
+                                        <a href="{{ url_for('mainjs_analyzer_page') }}?url={{ endpoint.url }}" class="btn btn-sm btn-warning" 
+                                           title="Analyze in Main.js Analyzer">
+                                            <i class="fas fa-code"></i>
                                         </a>
                                         {% endif %}
                                     </div>
@@ -682,7 +705,6 @@
                                                 <div class="alert alert-warning">
                                                     <i class="fas fa-exclamation-triangle mr-1"></i>
                                                     This endpoint returns a 403 Forbidden status. 
-                                                    {# ***** MODIFIED LINK BELOW ***** #}
                                                     <a href="{{ url_for('api_bypass_page') }}?domain={{ endpoint.url }}&domain_id={{ domain.id }}" class="btn btn-sm btn-dark mt-2">
                                                         <i class="fas fa-key mr-1"></i>Try API Bypass
                                                     </a>
@@ -819,7 +841,6 @@
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-key mr-2 text-primary"></i>API Endpoint Bypasses</h5>
-                {# ***** MODIFIED LINK BELOW ***** #}
                 <a href="{{ url_for('api_bypass_page') }}?domain=https://{{ domain.url }}&domain_id={{ domain.id }}" class="btn btn-dark">
                     <i class="fas fa-key mr-1"></i>New Bypass Test
                 </a>
@@ -913,7 +934,6 @@
                         <i class="fas fa-key fa-3x text-muted mb-3"></i>
                         <h5>No API bypasses found</h5>
                         <p class="text-muted">Run an API Bypass test to check for accessible protected endpoints</p>
-                        {# ***** MODIFIED LINK BELOW ***** #}
                         <a href="{{ url_for('api_bypass_page') }}?domain=https://{{ domain.url }}&domain_id={{ domain.id }}" class="btn btn-dark">
                             <i class="fas fa-key mr-1"></i>Run API Bypass Test
                         </a>
@@ -1155,5 +1175,116 @@
             $(this).next('.custom-file-label').html(fileName);
         });
     });
+    
+    function inspectLocation(location, title, vulnId) {
+        // Create modal for detailed location inspection
+        const modal = $('<div class="modal fade" id="locationModal" tabindex="-1" role="dialog"></div>');
+        
+        // Determine if this is a JavaScript file or localStorage finding
+        const isJavaScript = location.toLowerCase().includes('.js') || title.toLowerCase().includes('javascript');
+        const isStorage = title.toLowerCase().includes('storage');
+        
+        modal.html(`
+            <div class="modal-dialog modal-lg" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Location Details: ${title}</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>URL:</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" value="${location}" readonly>
+                                <div class="input-group-append">
+                                    <a href="${location}" target="_blank" class="btn btn-primary">
+                                        <i class="fas fa-external-link-alt"></i> Open
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Analysis Options:</label>
+                            <div class="btn-group d-flex">
+                                ${isJavaScript ? 
+                                `<a href="/mainjs-analyzer?url=${encodeURIComponent(location)}" class="btn btn-warning flex-fill">
+                                    <i class="fas fa-code"></i> Analyze in Main.js Analyzer
+                                </a>` : ''}
+                                
+                                ${isStorage ? 
+                                `<button class="btn btn-info flex-fill" onclick="showStorageInspectionGuide()">
+                                    <i class="fas fa-database"></i> Storage Inspection Guide
+                                </button>` : ''}
+                            </div>
+                        </div>
+                        
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h6 class="mb-0"><i class="fas fa-search mr-2"></i>Evidence</h6>
+                            </div>
+                            <div class="card-body">
+                                <pre id="evidence-content-${vulnId}" class="bg-dark text-light p-3" 
+                                     style="max-height: 300px; overflow-auto;">Loading evidence...</pre>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        `);
+        
+        modal.appendTo('body').modal('show');
+        
+        // Load evidence content
+        $(`#evidence-content-${vulnId}`).text($(`#vuln-modal-${vulnId} pre`).text());
+        
+        // Clean up when modal is closed
+        modal.on('hidden.bs.modal', function() {
+            modal.remove();
+        });
+    }
+
+    function showStorageInspectionGuide() {
+        const modal = $('<div class="modal fade" tabindex="-1" role="dialog"></div>');
+        modal.html(`
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Storage Inspection Guide</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <p>To inspect localStorage or sessionStorage:</p>
+                        <ol>
+                            <li>Open the website in your browser</li>
+                            <li>Press F12 to open Developer Tools</li>
+                            <li>Go to the "Application" tab (Chrome) or "Storage" tab (Firefox)</li>
+                            <li>Expand "Local Storage" or "Session Storage" in the left panel</li>
+                            <li>Click on the domain to view stored data</li>
+                        </ol>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i> Look for sensitive information that shouldn't be stored client-side.
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        `);
+        
+        modal.appendTo('body').modal('show');
+        
+        modal.on('hidden.bs.modal', function() {
+            modal.remove();
+        });
+    }
 </script>
 {% endblock %}
