@@ -1,4 +1,3 @@
-# utils/api_bypass.py
 import os
 import subprocess
 import requests
@@ -23,13 +22,11 @@ def run_bypass(domain, wordlist_path, domain_id=None):
     Returns:
         dict: Results of the bypass test
     """
-    # Check if we should try to use the script on supported platforms (Linux/Mac)
     try_bash_script = False
     if os.name == 'posix':  # Linux or Mac
         script_path = os.path.join(current_app.root_path, 'bypass-403.sh')
         if os.path.exists(script_path):
             try:
-                # Make the script executable
                 os.chmod(script_path, 0o755)
                 try_bash_script = True
             except:
@@ -371,6 +368,7 @@ def store_successful_bypasses(domain_id, domain_url, successful_bypasses, recomm
         
         # Commit all changes
         db.session.commit()
+        print(f"Successfully stored {len(successful_bypasses)} API bypass results for domain ID {domain_id}")
         return True
     except Exception as e:
         print(f"Error storing API bypass results: {str(e)}")
