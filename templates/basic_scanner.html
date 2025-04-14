@@ -2,7 +2,7 @@
 
 {% block content %}
 <div class="dashboard-header d-flex justify-content-between align-items-center mb-4">
-    <h1 class="dashboard-title">Basic Scanner</h1>
+    <h1 class="dashboard-title">Enhanced Scanner</h1>
     <div>
         <a href="{{ url_for('nuclei_scanner_page') }}" class="btn btn-info">
             <i class="fas fa-radiation mr-2"></i>Nuclei Scanner
@@ -17,68 +17,235 @@
     <div class="col-md-5 mb-4">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-search mr-2 text-primary"></i>Basic Scanner Input</h5>
+                <h5 class="mb-0"><i class="fas fa-search mr-2 text-primary"></i>Scanner Input</h5>
                 <span class="badge badge-success" id="scanner-status">Scanner Ready</span>
             </div>
             <div class="card-body">
-                <form id="basic-scan-form" onsubmit="runBasicScan(); return false;">
-                    <div class="form-group">
-                        <label for="domain-input">Single Domain:</label>
-                        <div class="input-group">
-                            <div class="input-group-prepend">
-                                <span class="input-group-text"><i class="fas fa-globe"></i></span>
+                <ul class="nav nav-tabs mb-3" id="scannerTabs" role="tablist">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="single-domain-tab" data-toggle="tab" href="#single-domain" role="tab">
+                            <i class="fas fa-globe mr-1"></i>Single Domain
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="domain-list-tab" data-toggle="tab" href="#domain-list" role="tab">
+                            <i class="fas fa-list mr-1"></i>Domain List
+                        </a>
+                    </li>
+                </ul>
+                
+                <div class="tab-content" id="scannerTabsContent">
+                    <!-- Single Domain Tab -->
+                    <div class="tab-pane fade show active" id="single-domain" role="tabpanel">
+                        <form id="single-domain-form" onsubmit="runBasicScan(); return false;">
+                            <div class="form-group">
+                                <label for="domain-input">Domain:</label>
+                                <div class="input-group">
+                                    <div class="input-group-prepend">
+                                        <span class="input-group-text"><i class="fas fa-globe"></i></span>
+                                    </div>
+                                    <input type="text" class="form-control" id="domain-input"
+                                           placeholder="example.com" value="{{ domain_to_scan }}">
+                                </div>
+                                <small class="form-text text-muted">Enter a single domain (e.g., example.com)</small>
                             </div>
-                            <input type="text" class="form-control" id="domain-input"
-                                   placeholder="example.com" value="{{ domain_to_scan }}">
-                        </div>
-                        <small class="form-text text-muted">Enter one domain (e.g., example.com) OR use the list below.</small>
-                    </div>
+                            
+                            <div class="card mb-3">
+                                <div class="card-header py-2">
+                                    <h6 class="m-0"><i class="fas fa-cog mr-1"></i>Scan Options</h6>
+                                </div>
+                                <div class="card-body">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="custom-control custom-checkbox">
+                                                <input type="checkbox" class="custom-control-input" id="check-technologies" checked>
+                                                <label class="custom-control-label" for="check-technologies">Detect Technologies</label>
+                                            </div>
+                                            <div class="custom-control custom-checkbox">
+                                                <input type="checkbox" class="custom-control-input" id="check-versions" checked>
+                                                <label class="custom-control-label" for="check-versions">Check Software Versions</label>
+                                            </div>
+                                            <div class="custom-control custom-checkbox">
+                                                <input type="checkbox" class="custom-control-input" id="check-headers" checked>
+                                                <label class="custom-control-label" for="check-headers">HTTP Headers Analysis</label>
+                                            </div>
+                                            <div class="custom-control custom-checkbox">
+                                                <input type="checkbox" class="custom-control-input" id="check-endpoints" checked>
+                                                <label class="custom-control-label" for="check-endpoints">API Endpoint Discovery</label>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="custom-control custom-checkbox">
+                                                <input type="checkbox" class="custom-control-input" id="check-mainjs" checked>
+                                                <label class="custom-control-label" for="check-mainjs">Locate main.js Files</label>
+                                            </div>
+                                            <div class="custom-control custom-checkbox">
+                                                <input type="checkbox" class="custom-control-input" id="check-vulns" checked>
+                                                <label class="custom-control-label" for="check-vulns">Vulnerability Detection</label>
+                                            </div>
+                                            <div class="custom-control custom-checkbox">
+                                                <input type="checkbox" class="custom-control-input" id="check-auth-bypass">
+                                                <label class="custom-control-label" for="check-auth-bypass">Auth Bypass Testing</label>
+                                            </div>
+                                            <div class="custom-control custom-checkbox">
+                                                <input type="checkbox" class="custom-control-input" id="check-cors">
+                                                <label class="custom-control-label" for="check-cors">CORS Testing</label>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label>Scan Depth:</label>
+                                <div class="custom-control custom-radio">
+                                    <input type="radio" id="depth-light" name="scan-depth" class="custom-control-input" value="light">
+                                    <label class="custom-control-label" for="depth-light">Light (Fast)</label>
+                                </div>
+                                <div class="custom-control custom-radio">
+                                    <input type="radio" id="depth-medium" name="scan-depth" class="custom-control-input" value="medium" checked>
+                                    <label class="custom-control-label" for="depth-medium">Medium (Balanced)</label>
+                                </div>
+                                <div class="custom-control custom-radio">
+                                    <input type="radio" id="depth-deep" name="scan-depth" class="custom-control-input" value="deep">
+                                    <label class="custom-control-label" for="depth-deep">Deep (Comprehensive)</label>
+                                </div>
+                            </div>
 
-                    <div class="form-group">
-                        <label for="domain-list-input">Domain List (One per line):</label>
-                        <textarea class="form-control" id="domain-list-input" rows="5"
-                                  placeholder="example.com&#10;sub.example.org&#10;another.net"></textarea>
-                        <small class="form-text text-muted">Enter multiple domains here OR use the single input above.</small>
+                            <button type="submit" class="btn btn-primary btn-block">
+                                <i class="fas fa-search mr-2"></i>Scan Domain
+                            </button>
+                        </form>
                     </div>
-                    <div class="form-group">
-                        <h6>Scan Options:</h6>
-                        <div class="custom-control custom-checkbox">
-                            <input type="checkbox" class="custom-control-input" id="check-technologies" checked>
-                            <label class="custom-control-label" for="check-technologies">Detect Technologies</label>
-                        </div>
-                        <div class="custom-control custom-checkbox">
-                            <input type="checkbox" class="custom-control-input" id="check-versions" checked>
-                            <label class="custom-control-label" for="check-versions">Check Software Versions</label>
-                        </div>
-                        <div class="custom-control custom-checkbox">
-                            <input type="checkbox" class="custom-control-input" id="check-headers" checked>
-                            <label class="custom-control-label" for="check-headers">HTTP Headers Analysis</label>
-                        </div>
-                        <div class="custom-control custom-checkbox">
-                            <input type="checkbox" class="custom-control-input" id="check-mainjs" checked>
-                            <label class="custom-control-label" for="check-mainjs">Locate main.js Files</label>
-                        </div>
-                    </div>
+                    
+                    <!-- Domain List Tab -->
+                    <div class="tab-pane fade" id="domain-list" role="tabpanel">
+                        <form id="domain-list-form" onsubmit="runBasicScanList(); return false;">
+                            <div class="form-group">
+                                <label for="domain-list-input">Domain List (One per line):</label>
+                                <textarea class="form-control" id="domain-list-input" rows="8"
+                                      placeholder="example.com&#10;sub.example.org&#10;another.net"></textarea>
+                                <small class="form-text text-muted">Enter multiple domains, one per line</small>
+                            </div>
+                            
+                            <div class="form-group">
+                                <div class="custom-control custom-checkbox mb-2">
+                                    <input type="checkbox" class="custom-control-input" id="use-same-options" checked>
+                                    <label class="custom-control-label" for="use-same-options">Use same options as single domain</label>
+                                </div>
+                                
+                                <div class="form-row">
+                                    <div class="col-md-6">
+                                        <label for="batch-size" class="small">Batch Size:</label>
+                                        <input type="number" class="form-control form-control-sm" id="batch-size" min="1" max="20" value="5">
+                                        <small class="form-text text-muted">Domains to scan in parallel</small>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <label for="batch-delay" class="small">Delay (seconds):</label>
+                                        <input type="number" class="form-control form-control-sm" id="batch-delay" min="0" max="10" value="0.5" step="0.1">
+                                        <small class="form-text text-muted">Delay between batches</small>
+                                    </div>
+                                </div>
+                            </div>
 
-                    <button type="submit" class="btn btn-primary btn-block">
-                        <i class="fas fa-search mr-2"></i>Scan Domain(s)
-                    </button>
-                </form>
+                            <button type="submit" class="btn btn-primary btn-block">
+                                <i class="fas fa-list-check mr-2"></i>Scan Domain List
+                            </button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card mt-4" id="summary-card" style="display: none;">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-bar mr-2 text-primary"></i>Scan Summary</h5>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <h6 class="text-muted mb-1">Status:</h6>
+                        <span class="badge badge-lg py-2 px-3" id="summary-status">Unknown</span>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-muted mb-1">Domain:</h6>
+                        <h5 id="summary-domain">-</h5>
+                    </div>
+                </div>
+                
+                <div class="row">
+                    <div class="col-md-4 mb-3">
+                        <div class="text-center">
+                            <h3 id="summary-tech-count">0</h3>
+                            <p class="mb-0 text-muted">Technologies</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="text-center">
+                            <h3 id="summary-vuln-count">0</h3>
+                            <p class="mb-0 text-muted">Vulnerabilities</p>
+                        </div>
+                    </div>
+                    <div class="col-md-4 mb-3">
+                        <div class="text-center">
+                            <h3 id="summary-endpoint-count">0</h3>
+                            <p class="mb-0 text-muted">Endpoints</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="vuln-summary-section" style="display: none;">
+                    <hr>
+                    <h6 class="text-muted">Vulnerability Summary:</h6>
+                    <div class="row">
+                        <div class="col-3">
+                            <div class="alert alert-purple p-2 mb-0 text-center">
+                                <span class="severity-critical">Critical:</span> <span id="summary-critical-count">0</span>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="alert alert-danger p-2 mb-0 text-center">
+                                <span class="severity-high">High:</span> <span id="summary-high-count">0</span>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="alert alert-warning p-2 mb-0 text-center">
+                                <span class="severity-medium">Medium:</span> <span id="summary-medium-count">0</span>
+                            </div>
+                        </div>
+                        <div class="col-3">
+                            <div class="alert alert-info p-2 mb-0 text-center">
+                                <span class="severity-low">Low:</span> <span id="summary-low-count">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="mt-3">
+                    <a href="#" id="view-domain-link" class="btn btn-primary btn-block">
+                        <i class="fas fa-eye mr-1"></i>View Complete Results
+                    </a>
+                </div>
             </div>
         </div>
     </div>
-
+    
     <div class="col-md-7 mb-4">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0"><i class="fas fa-terminal mr-2 text-primary"></i>Scanner Output</h5>
-                <button class="btn btn-sm btn-secondary" onclick="clearTerminal('scan-terminal')">
-                    <i class="fas fa-eraser mr-1"></i>Clear Output
-                </button>
+                <div>
+                    <button class="btn btn-sm btn-secondary" onclick="clearTerminal('scan-terminal')">
+                        <i class="fas fa-eraser mr-1"></i>Clear Output
+                    </button>
+                    <button class="btn btn-sm btn-outline-primary ml-2" onclick="toggleVerboseOutput()" id="verbose-toggle">
+                        <i class="fas fa-list-ul mr-1"></i>Verbose Output
+                    </button>
+                </div>
             </div>
             <div class="card-body">
                 <div class="terminal" id="scan-terminal">
-                    Basic scanner initialized. Enter a domain or list to begin scanning.
+                    Enhanced scanner initialized. Enter a domain or list to begin scanning.
                 </div>
             </div>
         </div>
@@ -89,38 +256,45 @@
     <div class="col-12">
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-chart-bar mr-2 text-primary"></i>Last Scan Results (Summary)</h5>
+                <h5 class="mb-0"><i class="fas fa-chart-bar mr-2 text-primary"></i>Scan Results</h5>
                 <div id="results-header-badge" style="display: none;">
-                    <span class="badge badge-primary">Basic Scan</span>
+                    <span class="badge badge-primary">Scanner</span>
                     <span class="badge ml-2" id="status-badge">Unknown</span>
                 </div>
             </div>
             <div class="card-body">
                 <div id="results-container" style="display: none;">
-                     <ul class="nav nav-tabs" id="resultTabs" role="tablist">
+                    <ul class="nav nav-tabs" id="resultTabs" role="tablist">
                         <li class="nav-item">
-                            <a class="nav-link active" id="technologies-tab-display" data-toggle="tab" href="#technologies-display" role="tab"> {/* Changed ID */}
+                            <a class="nav-link active" id="technologies-tab" data-toggle="tab" href="#technologies" role="tab">
                                 <i class="fas fa-code mr-1"></i>Technologies
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" id="headers-tab-display" data-toggle="tab" href="#headers-display" role="tab"> {/* Changed ID */}
+                            <a class="nav-link" id="headers-tab" data-toggle="tab" href="#headers" role="tab">
                                 <i class="fas fa-exchange-alt mr-1"></i>HTTP Headers
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" id="vulnerabilities-tab-display" data-toggle="tab" href="#vulnerabilities-display" role="tab"> {/* Changed ID */}
+                            <a class="nav-link" id="vulnerabilities-tab" data-toggle="tab" href="#vulnerabilities" role="tab">
                                 <i class="fas fa-bug mr-1"></i>Vulnerabilities
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" id="js-files-tab-display" data-toggle="tab" href="#js-files-display" role="tab"> {/* Changed ID */}
+                            <a class="nav-link" id="endpoints-tab" data-toggle="tab" href="#endpoints" role="tab">
+                                <i class="fas fa-sitemap mr-1"></i>Endpoints
+                            </a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="js-files-tab" data-toggle="tab" href="#js-files" role="tab">
                                 <i class="fas fa-file-code mr-1"></i>JavaScript Files
                             </a>
                         </li>
                     </ul>
+                    
                     <div class="tab-content p-3 border border-top-0 rounded-bottom" id="resultTabsContent">
-                        <div class="tab-pane fade show active" id="technologies-display" role="tabpanel"> {/* Changed ID */}
+                        <!-- Technologies Tab -->
+                        <div class="tab-pane fade show active" id="technologies" role="tabpanel">
                             <div class="row">
                                 <div class="col-md-6">
                                     <h6 class="mb-3">Detected Technologies</h6>
@@ -136,7 +310,9 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tab-pane fade" id="headers-display" role="tabpanel"> {/* Changed ID */}
+                        
+                        <!-- HTTP Headers Tab -->
+                        <div class="tab-pane fade" id="headers" role="tabpanel">
                             <div class="row">
                                 <div class="col-md-6">
                                     <h6 class="mb-3">Security Headers</h6>
@@ -152,12 +328,46 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="tab-pane fade" id="vulnerabilities-display" role="tabpanel"> {/* Changed ID */}
+                        
+                        <!-- Vulnerabilities Tab -->
+                        <div class="tab-pane fade" id="vulnerabilities" role="tabpanel">
+                            <div class="mb-3">
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <button type="button" class="btn btn-outline-dark filter-vuln active" data-filter="all">All</button>
+                                    <button type="button" class="btn btn-outline-purple filter-vuln" data-filter="critical">Critical</button>
+                                    <button type="button" class="btn btn-outline-danger filter-vuln" data-filter="high">High</button>
+                                    <button type="button" class="btn btn-outline-warning filter-vuln" data-filter="medium">Medium</button>
+                                    <button type="button" class="btn btn-outline-info filter-vuln" data-filter="low">Low</button>
+                                </div>
+                            </div>
                             <div id="vulnerabilities-list">
                                 <div class="text-muted">No vulnerabilities detected</div>
                             </div>
                         </div>
-                        <div class="tab-pane fade" id="js-files-display" role="tabpanel"> {/* Changed ID */}
+                        
+                        <!-- Endpoints Tab -->
+                        <div class="tab-pane fade" id="endpoints" role="tabpanel">
+                            <div class="mb-3">
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="show-all-endpoints" checked>
+                                    <label class="form-check-label" for="show-all-endpoints">Show All Endpoints</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="show-api-endpoints">
+                                    <label class="form-check-label" for="show-api-endpoints">Show Only API Endpoints</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="checkbox" id="show-protected-endpoints">
+                                    <label class="form-check-label" for="show-protected-endpoints">Show Only Protected Endpoints</label>
+                                </div>
+                            </div>
+                            <div id="endpoints-list">
+                                <div class="text-muted">No endpoints discovered</div>
+                            </div>
+                        </div>
+                        
+                        <!-- JavaScript Files Tab -->
+                        <div class="tab-pane fade" id="js-files" role="tabpanel">
                             <div id="js-files-list">
                                 <div class="text-muted">No JavaScript files detected</div>
                             </div>
@@ -175,17 +385,33 @@
                         </div>
                     </div>
                 </div>
+                
                 <div id="inactive-site-message" style="display: none;">
                     <div class="alert alert-danger">
                         <h5><i class="fas fa-exclamation-triangle mr-2"></i>Site is inactive</h5>
                         <p>The domain appears to be inactive or inaccessible. No further scanning was performed.</p>
                     </div>
                 </div>
+                
                 <div id="no-scan-message">
                     <div class="text-center py-5">
                         <i class="fas fa-search fa-3x text-muted mb-3"></i>
                         <h5>No scan results yet</h5>
-                        <p class="text-muted">Enter a domain or list and click "Scan Domain(s)" to start scanning.</p>
+                        <p class="text-muted">Enter a domain or list and click "Scan" to start scanning.</p>
+                    </div>
+                </div>
+                
+                <div id="scan-progress" style="display: none;">
+                    <div class="text-center py-4">
+                        <div class="spinner-border text-primary mb-3" role="status">
+                            <span class="sr-only">Scanning...</span>
+                        </div>
+                        <h5>Scan in progress</h5>
+                        <p class="text-muted mb-2">This may take a few moments...</p>
+                        <div class="progress mt-3" style="height: 10px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%" id="progress-bar"></div>
+                        </div>
+                        <p class="text-muted mt-2" id="progress-status">Initializing scan...</p>
                     </div>
                 </div>
             </div>
@@ -199,167 +425,663 @@
 <script>
 // Connect to Socket.IO for real-time updates
 const socket = io();
-let currentScanGroupId = null; // Track the group ID for multiple scans
+let currentScanId = null;
+let verboseOutput = false;
+let scanOptions = {};
 
 // Handle basic scan updates from backend
 socket.on('scan_update', function(data) {
-    // Display all messages regardless of status or specific scan_id within the group
-    let message = `[${data.timestamp.split('T')[1].split('.')[0]}][${data.scan_id}] ${data.message}`; // Simple timestamp + scan ID prefix
-    let messageClass = '';
+    // Only process messages for the current scan
+    if (currentScanId && data.scan_id.startsWith(currentScanId)) {
+        let message = `[${data.timestamp.split('T')[1].split('.')[0]}] ${data.message}`;
+        let messageClass = '';
 
-    // Determine class based on status for coloring (optional but helpful)
-    switch(data.status) {
-        case 'error': messageClass = 'text-danger'; break;
-        case 'warning': messageClass = 'text-warning'; break;
-        case 'success': messageClass = 'text-success'; break;
-        case 'info': messageClass = 'text-info'; break;
-        case 'debug': messageClass = 'text-muted small'; break; // Make debug logs less prominent
-        case 'critical': messageClass = 'severity-critical'; break;
-        case 'high': messageClass = 'severity-high'; break;
-        case 'medium': messageClass = 'severity-medium'; break;
-        case 'low': messageClass = 'severity-low'; break;
-        default: messageClass = '';
-    }
+        // Skip debug messages if verbose mode is off
+        if (data.status === 'debug' && !verboseOutput) {
+            return;
+        }
 
-    appendToTerminal('scan-terminal', message, messageClass);
+        // Determine message class based on status
+        switch(data.status) {
+            case 'error': messageClass = 'text-danger'; break;
+            case 'warning': messageClass = 'text-warning'; break;
+            case 'success': messageClass = 'text-success'; break;
+            case 'info': messageClass = 'text-info'; break;
+            case 'debug': messageClass = 'text-muted small'; break;
+            case 'critical': messageClass = 'severity-critical'; break;
+            case 'high': messageClass = 'severity-high'; break;
+            case 'medium': messageClass = 'severity-medium'; break;
+            case 'low': messageClass = 'severity-low'; break;
+            default: messageClass = '';
+        }
 
-    // Update results for the *last* completed scan (simple approach)
-    // A more robust approach would track completion per scan_id
-    if (data.message.startsWith("Basic scan finished")) {
-         document.getElementById('scanner-status').className = 'badge badge-success';
-         document.getElementById('scanner-status').innerText = 'Scan(s) Complete';
-         // You might want to fetch final results for the *specific* domain ID
-         // related to this final message if you need to update the results table.
-         // For simplicity, this example doesn't auto-update the results table on completion.
+        appendToTerminal('scan-terminal', message, messageClass);
+        
+        // Update progress if there is progress data
+        if (data.data && data.data.progress) {
+            updateProgressBar(data.data.progress);
+        }
+        
+        // Update UI state based on message content
+        if (data.message.startsWith("Basic scan finished") || data.message.includes("scan completed")) {
+            scanCompleted();
+        }
     }
 });
 
-
-// Modified function to handle single or list input
-function runBasicScan() {
-    const singleDomain = document.getElementById('domain-input').value.trim();
-    const domainList = document.getElementById('domain-list-input').value.trim();
-    let requestBody = '';
-    let domainsToScanCount = 0;
-
-    // Prioritize list if both are filled, or check individually
-    if (domainList) {
-        requestBody = `domain_list=${encodeURIComponent(domainList)}`;
-        domainsToScanCount = domainList.split('\n').filter(d => d.trim()).length;
-    } else if (singleDomain) {
-        requestBody = `domain=${encodeURIComponent(singleDomain)}`;
-        domainsToScanCount = 1;
+// Function to toggle verbose output
+function toggleVerboseOutput() {
+    verboseOutput = !verboseOutput;
+    const toggleBtn = document.getElementById('verbose-toggle');
+    
+    if (verboseOutput) {
+        toggleBtn.classList.remove('btn-outline-primary');
+        toggleBtn.classList.add('btn-primary');
     } else {
-        alert('Please enter a single domain OR a list of domains.');
+        toggleBtn.classList.remove('btn-primary');
+        toggleBtn.classList.add('btn-outline-primary');
+    }
+}
+
+// Function to run single domain scan
+function runBasicScan() {
+    const domain = document.getElementById('domain-input').value.trim();
+    if (!domain) {
+        alert('Please enter a domain to scan');
         return;
     }
-
-    // Update UI to show scanning state
+    
+    // Gather scan options
+    gatherScanOptions();
+    
+    // Reset and update UI
+    resetUI();
+    document.getElementById('scanner-status').innerText = 'Scanning...';
     document.getElementById('scanner-status').className = 'badge badge-warning';
-    document.getElementById('scanner-status').innerText = `Scanning ${domainsToScanCount} domain(s)...`;
-
-    // Clear terminal and previous results display
-    clearTerminal('scan-terminal');
-    resetResultsDisplay(); // Use a separate function to clear the results area
-
-    appendToTerminal('scan-terminal', `Starting basic scan for ${domainsToScanCount} domain(s)...`);
-
-    // Make AJAX request to backend
+    document.getElementById('scan-progress').style.display = 'block';
+    
+    // Generate a scan ID
+    currentScanId = `basic_scan_${Date.now()}`;
+    appendToTerminal('scan-terminal', `Starting enhanced scan for ${domain}...`, 'text-info');
+    
+    // Make the request
     fetch('/run-basic-scan', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: requestBody // Send either 'domain' or 'domain_list'
+        body: `domain=${encodeURIComponent(domain)}&options=${encodeURIComponent(JSON.stringify(scanOptions))}`
     })
     .then(response => response.json())
     .then(data => {
         if (data.error) {
-            appendToTerminal('scan-terminal', `Error starting scan: ${data.error}`, 'text-danger');
-            document.getElementById('scanner-status').className = 'badge badge-danger';
-            document.getElementById('scanner-status').innerText = 'Error';
-        } else {
-            currentScanGroupId = data.scan_group_id; // Store the group ID
-            appendToTerminal('scan-terminal', `Scan initiated for ${domainsToScanCount} domain(s). Group ID: ${currentScanGroupId}`, 'text-info');
-            // Status will update based on SocketIO messages
+            appendToTerminal('scan-terminal', `Error: ${data.error}`, 'text-danger');
+            scanFailed();
+            return;
         }
+        
+        // Initial response just confirms scan started
+        appendToTerminal('scan-terminal', `Scan initiated with ID: ${data.scan_group_id}`, 'text-info');
+        
+        // Results will come via socket.io updates
     })
     .catch(error => {
-        document.getElementById('scanner-status').className = 'badge badge-danger';
-        document.getElementById('scanner-status').innerText = 'Request Failed';
-        appendToTerminal('scan-terminal', `Error initiating scan request: ${error}`, 'text-danger');
+        appendToTerminal('scan-terminal', `Error: ${error}`, 'text-danger');
+        scanFailed();
     });
 }
 
-// Reset results display area
-function resetResultsDisplay() {
-    document.getElementById('results-container').style.display = 'none';
-    document.getElementById('inactive-site-message').style.display = 'none';
-    document.getElementById('no-scan-message').style.display = 'block'; // Show the initial message
-    document.getElementById('results-header-badge').style.display = 'none';
-    document.getElementById('mainjs-section').style.display = 'none';
-
-    // Clear content within tabs
-    document.getElementById('technologies-list').innerHTML = '<div class="text-muted">Scan needed</div>';
-    document.getElementById('version-info').innerHTML = '<div class="text-muted">Scan needed</div>';
-    document.getElementById('security-headers').innerHTML = '<div class="text-muted">Scan needed</div>';
-    document.getElementById('all-headers').innerHTML = '<div class="text-muted">Scan needed</div>';
-    document.getElementById('vulnerabilities-list').innerHTML = '<div class="text-muted">Scan needed</div>';
-    document.getElementById('js-files-list').innerHTML = '<div class="text-muted">Scan needed</div>';
-
-     // Reset tab badges if they were updated dynamically (optional)
-     document.getElementById('vulnerabilities-tab-display').innerHTML = '<i class="fas fa-bug mr-1"></i>Vulnerabilities';
-     document.getElementById('js-files-tab-display').innerHTML = '<i class="fas fa-file-code mr-1"></i>JavaScript Files';
+// Function to run domain list scan
+function runBasicScanList() {
+    const domainList = document.getElementById('domain-list-input').value.trim();
+    if (!domainList) {
+        alert('Please enter domains to scan');
+        return;
+    }
+    
+    const domains = domainList.split('\n').filter(d => d.trim());
+    if (domains.length === 0) {
+        alert('Please enter at least one valid domain');
+        return;
+    }
+    
+    // Get batch settings
+    const batchSize = parseInt(document.getElementById('batch-size').value) || 5;
+    const batchDelay = parseFloat(document.getElementById('batch-delay').value) || 0.5;
+    
+    // Gather scan options if using same options
+    if (document.getElementById('use-same-options').checked) {
+        gatherScanOptions();
+    } else {
+        // Default options
+        scanOptions = {
+            check_technologies: true,
+            check_versions: true,
+            check_headers: true,
+            check_endpoints: true,
+            check_mainjs: true,
+            check_vulns: true,
+            check_auth_bypass: false,
+            check_cors: false,
+            scan_depth: 'medium'
+        };
+    }
+    
+    // Reset and update UI
+    resetUI();
+    document.getElementById('scanner-status').innerText = `Scanning ${domains.length} Domains...`;
+    document.getElementById('scanner-status').className = 'badge badge-warning';
+    document.getElementById('scan-progress').style.display = 'block';
+    updateProgressBar(0, `0/${domains.length} domains scanned`);
+    
+    // Generate a scan ID
+    currentScanId = `batch_scan_${Date.now()}`;
+    appendToTerminal('scan-terminal', `Starting batch scan for ${domains.length} domains...`, 'text-info');
+    appendToTerminal('scan-terminal', `Batch size: ${batchSize}, Delay: ${batchDelay}s`, 'text-info');
+    
+    // Make the request
+    fetch('/run-basic-scan', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `domain_list=${encodeURIComponent(domainList)}&batch_size=${batchSize}&delay=${batchDelay}&options=${encodeURIComponent(JSON.stringify(scanOptions))}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            appendToTerminal('scan-terminal', `Error: ${data.error}`, 'text-danger');
+            scanFailed();
+            return;
+        }
+        
+        // Initial response just confirms batch scan started
+        appendToTerminal('scan-terminal', `Batch scan initiated with ID: ${data.scan_group_id}`, 'text-info');
+        appendToTerminal('scan-terminal', `${data.message}`, 'text-info');
+        
+        // Results will come via socket.io updates
+    })
+    .catch(error => {
+        appendToTerminal('scan-terminal', `Error: ${error}`, 'text-danger');
+        scanFailed();
+    });
 }
 
-// --- Terminal Helpers --- (Assumes appendToTerminal and clearTerminal are globally available or defined here/in main.js)
-// Using the version from main.js if it's loaded globally, otherwise define locally if needed.
-// Make sure these are accessible. If not defined in main.js, define them here:
+// Function to gather scan options from the form
+function gatherScanOptions() {
+    scanOptions = {
+        check_technologies: document.getElementById('check-technologies').checked,
+        check_versions: document.getElementById('check-versions').checked,
+        check_headers: document.getElementById('check-headers').checked,
+        check_endpoints: document.getElementById('check-endpoints').checked,
+        check_mainjs: document.getElementById('check-mainjs').checked,
+        check_vulns: document.getElementById('check-vulns').checked,
+        check_auth_bypass: document.getElementById('check-auth-bypass').checked,
+        check_cors: document.getElementById('check-cors').checked,
+        scan_depth: document.querySelector('input[name="scan-depth"]:checked').value
+    };
+}
 
-/*
+// Reset UI elements
+function resetUI() {
+    // Clear terminal
+    clearTerminal('scan-terminal');
+    
+    // Reset results sections
+    document.getElementById('results-container').style.display = 'none';
+    document.getElementById('inactive-site-message').style.display = 'none';
+    document.getElementById('no-scan-message').style.display = 'block';
+    document.getElementById('scan-progress').style.display = 'none';
+    document.getElementById('summary-card').style.display = 'none';
+    
+    // Reset terminal content
+    document.getElementById('scan-terminal').innerHTML = 'Starting scan...';
+    
+    // Reset progress bar
+    updateProgressBar(0);
+}
+
+// Update progress bar
+function updateProgressBar(percent, statusText = null) {
+    const progressBar = document.getElementById('progress-bar');
+    progressBar.style.width = `${percent}%`;
+    
+    if (statusText) {
+        document.getElementById('progress-status').innerText = statusText;
+    }
+}
+
+// Handle scan completion
+function scanCompleted() {
+    document.getElementById('scanner-status').innerText = 'Scan Complete';
+    document.getElementById('scanner-status').className = 'badge badge-success';
+    document.getElementById('scan-progress').style.display = 'none';
+    
+    // Request the results
+    fetchScanResults(currentScanId);
+}
+
+// Handle scan failure
+function scanFailed() {
+    document.getElementById('scanner-status').innerText = 'Scan Failed';
+    document.getElementById('scanner-status').className = 'badge badge-danger';
+    document.getElementById('scan-progress').style.display = 'none';
+}
+
+// Fetch scan results after completion
+function fetchScanResults(scanId) {
+    // This would be an API endpoint that returns the full scan results
+    // For now, we'll just simulate it with a setTimeout
+    appendToTerminal('scan-terminal', 'Fetching scan results...', 'text-info');
+    
+    setTimeout(() => {
+        // Sample result data - in a real app, this would come from the server
+        const sampleResults = {
+            domain: document.getElementById('domain-input').value.trim() || 'example.com',
+            status: 'ACTIVE',
+            technologies: [
+                { name: 'Apache', version: '2.4.41' },
+                { name: 'PHP', version: '7.4.3' },
+                { name: 'jQuery', version: '3.6.0' },
+                { name: 'Bootstrap', version: '4.5.2' }
+            ],
+            vulnerabilities: [
+                { 
+                    title: 'Missing Content Security Policy', 
+                    severity: 'MEDIUM',
+                    description: 'The Content-Security-Policy header is missing.'
+                },
+                { 
+                    title: 'jQuery Outdated Version', 
+                    severity: 'LOW',
+                    description: 'Using an outdated version of jQuery.'
+                }
+            ],
+            endpoints: [
+                { url: '/api/v1/users', status_code: 200 },
+                { url: '/api/v1/admin', status_code: 403 },
+                { url: '/login', status_code: 200 }
+            ],
+            js_files: [
+                { url: '/js/main.123abc.js', is_main: true },
+                { url: '/js/vendor.js', is_main: false }
+            ],
+            security_headers: {
+                'Content-Security-Policy': { status: 'Missing', importance: 'high' },
+                'X-XSS-Protection': { status: 'Present', value: '1; mode=block' },
+                'Strict-Transport-Security': { status: 'Present', value: 'max-age=31536000; includeSubDomains' }
+            }
+        };
+        
+        displayResults(sampleResults);
+    }, 1000);
+}
+
+// Display scan results
+function displayResults(results) {
+    document.getElementById('no-scan-message').style.display = 'none';
+    
+    if (results.status === 'ACTIVE') {
+        // Show results container
+        document.getElementById('results-container').style.display = 'block';
+        
+        // Update summary card
+        document.getElementById('summary-card').style.display = 'block';
+        document.getElementById('summary-domain').innerText = results.domain;
+        document.getElementById('summary-status').innerText = results.status;
+        document.getElementById('summary-status').className = 'badge badge-success badge-lg py-2 px-3';
+        document.getElementById('summary-tech-count').innerText = results.technologies.length;
+        document.getElementById('summary-vuln-count').innerText = results.vulnerabilities.length;
+        document.getElementById('summary-endpoint-count').innerText = results.endpoints.length;
+        
+        // If there are vulnerabilities, show the summary breakdown
+        if (results.vulnerabilities.length > 0) {
+            document.getElementById('vuln-summary-section').style.display = 'block';
+            
+            // Count vulnerabilities by severity
+            let criticalCount = 0, highCount = 0, mediumCount = 0, lowCount = 0;
+            results.vulnerabilities.forEach(vuln => {
+                switch(vuln.severity) {
+                    case 'CRITICAL': criticalCount++; break;
+                    case 'HIGH': highCount++; break;
+                    case 'MEDIUM': mediumCount++; break;
+                    case 'LOW': lowCount++; break;
+                }
+            });
+            
+            document.getElementById('summary-critical-count').innerText = criticalCount;
+            document.getElementById('summary-high-count').innerText = highCount;
+            document.getElementById('summary-medium-count').innerText = mediumCount;
+            document.getElementById('summary-low-count').innerText = lowCount;
+        } else {
+            document.getElementById('vuln-summary-section').style.display = 'none';
+        }
+        
+        // Update technologies tab
+        if (results.technologies.length > 0) {
+            const techList = document.getElementById('technologies-list');
+            techList.innerHTML = '';
+            const verInfo = document.getElementById('version-info');
+            verInfo.innerHTML = '';
+            
+            results.technologies.forEach(tech => {
+                const techBadge = document.createElement('div');
+                techBadge.className = 'tech-badge mb-2';
+                techBadge.innerText = tech.name;
+                techList.appendChild(techBadge);
+                
+                if (tech.version) {
+                    const verItem = document.createElement('div');
+                    verItem.className = 'mb-2';
+                    verItem.innerHTML = `<strong>${tech.name}:</strong> ${tech.version}`;
+                    verInfo.appendChild(verItem);
+                }
+            });
+        }
+        
+        // Update security headers tab
+        if (results.security_headers) {
+            const secHeaders = document.getElementById('security-headers');
+            secHeaders.innerHTML = '';
+            const allHeaders = document.getElementById('all-headers');
+            allHeaders.innerHTML = '';
+            
+            for (const [header, info] of Object.entries(results.security_headers)) {
+                const headerEl = document.createElement('div');
+                headerEl.className = 'mb-3';
+                
+                // Status badge
+                let statusBadge = '';
+                if (info.status === 'Present') {
+                    statusBadge = '<span class="badge badge-success">Present</span>';
+                } else if (info.status === 'Missing') {
+                    statusBadge = '<span class="badge badge-danger">Missing</span>';
+                } else if (info.status === 'Weak') {
+                    statusBadge = '<span class="badge badge-warning">Weak</span>';
+                }
+                
+                headerEl.innerHTML = `
+                    <div class="d-flex justify-content-between">
+                        <strong>${header}</strong>
+                        ${statusBadge}
+                    </div>
+                    ${info.value ? `<div class="small text-muted">${info.value}</div>` : ''}
+                `;
+                
+                if (header === 'Content-Security-Policy' || 
+                    header === 'Strict-Transport-Security' || 
+                    header === 'X-XSS-Protection' || 
+                    header === 'X-Frame-Options' || 
+                    header === 'X-Content-Type-Options') {
+                    secHeaders.appendChild(headerEl);
+                } else {
+                    allHeaders.appendChild(headerEl);
+                }
+            }
+            
+            // If no security headers
+            if (secHeaders.childElementCount === 0) {
+                secHeaders.innerHTML = '<div class="text-muted">No security headers found</div>';
+            }
+            
+            // If no other headers
+            if (allHeaders.childElementCount === 0) {
+                allHeaders.innerHTML = '<div class="text-muted">No other headers found</div>';
+            }
+        }
+        
+        // Update vulnerabilities tab
+        if (results.vulnerabilities.length > 0) {
+            const vulnList = document.getElementById('vulnerabilities-list');
+            vulnList.innerHTML = '';
+            
+            results.vulnerabilities.forEach(vuln => {
+                const vulnEl = document.createElement('div');
+                vulnEl.className = `card mb-3 vuln-${vuln.severity.toLowerCase()}`;
+                vulnEl.setAttribute('data-severity', vuln.severity.toLowerCase());
+                
+                vulnEl.innerHTML = `
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h6 class="card-title mb-0">${vuln.title}</h6>
+                            <span class="badge severity-${vuln.severity.toLowerCase()}">${vuln.severity}</span>
+                        </div>
+                        <p class="card-text small">${vuln.description}</p>
+                    </div>
+                `;
+                
+                vulnList.appendChild(vulnEl);
+            });
+            
+            // Set up vulnerability filtering
+            const filterButtons = document.querySelectorAll('.filter-vuln');
+            filterButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    // Remove active class from all buttons
+                    filterButtons.forEach(btn => btn.classList.remove('active'));
+                    
+                    // Add active class to clicked button
+                    this.classList.add('active');
+                    
+                    // Get filter value
+                    const filter = this.getAttribute('data-filter');
+                    
+                    // Filter vulnerabilities
+                    const vulnItems = document.querySelectorAll('[data-severity]');
+                    vulnItems.forEach(item => {
+                        if (filter === 'all' || item.getAttribute('data-severity') === filter) {
+                            item.style.display = '';
+                        } else {
+                            item.style.display = 'none';
+                        }
+                    });
+                });
+            });
+        } else {
+            document.getElementById('vulnerabilities-list').innerHTML = 
+                '<div class="alert alert-success">No vulnerabilities detected!</div>';
+        }
+        
+        // Update endpoints tab
+        if (results.endpoints.length > 0) {
+            const endpointsList = document.getElementById('endpoints-list');
+            endpointsList.innerHTML = `
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Endpoint</th>
+                                <th>Status</th>
+                                <th>Type</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="endpoints-table-body">
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            const tableBody = document.getElementById('endpoints-table-body');
+            
+            results.endpoints.forEach(endpoint => {
+                const tr = document.createElement('tr');
+                
+                // Determine if API endpoint
+                const isApi = endpoint.url.includes('/api/');
+                
+                // Determine if protected
+                const isProtected = endpoint.status_code === 401 || endpoint.status_code === 403;
+                
+                tr.setAttribute('data-is-api', isApi);
+                tr.setAttribute('data-is-protected', isProtected);
+                
+                // Status badge
+                let statusBadge = '';
+                if (endpoint.status_code >= 200 && endpoint.status_code < 300) {
+                    statusBadge = `<span class="badge badge-success">${endpoint.status_code}</span>`;
+                } else if (endpoint.status_code >= 300 && endpoint.status_code < 400) {
+                    statusBadge = `<span class="badge badge-info">${endpoint.status_code}</span>`;
+                } else if (endpoint.status_code >= 400 && endpoint.status_code < 500) {
+                    statusBadge = `<span class="badge badge-warning">${endpoint.status_code}</span>`;
+                } else if (endpoint.status_code >= 500) {
+                    statusBadge = `<span class="badge badge-danger">${endpoint.status_code}</span>`;
+                } else {
+                    statusBadge = `<span class="badge badge-secondary">Unknown</span>`;
+                }
+                
+                tr.innerHTML = `
+                    <td>${endpoint.url}</td>
+                    <td>${statusBadge}</td>
+                    <td>${isApi ? '<span class="badge badge-info">API</span>' : '<span class="badge badge-secondary">Standard</span>'}</td>
+                    <td>
+                        <a href="${results.domain}${endpoint.url}" target="_blank" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-external-link-alt"></i>
+                        </a>
+                        ${isProtected ? `
+                        <a href="${url_for('api_bypass_page')}?domain=${encodeURIComponent(results.domain + endpoint.url)}" class="btn btn-sm btn-outline-dark ml-1">
+                            <i class="fas fa-key"></i>
+                        </a>` : ''}
+                    </td>
+                `;
+                
+                tableBody.appendChild(tr);
+            });
+            
+            // Set up endpoint filtering
+            document.getElementById('show-all-endpoints').addEventListener('change', filterEndpoints);
+            document.getElementById('show-api-endpoints').addEventListener('change', filterEndpoints);
+            document.getElementById('show-protected-endpoints').addEventListener('change', filterEndpoints);
+        } else {
+            document.getElementById('endpoints-list').innerHTML = 
+                '<div class="alert alert-info">No endpoints discovered</div>';
+        }
+        
+        // Update JavaScript files tab
+        if (results.js_files.length > 0) {
+            const jsFilesList = document.getElementById('js-files-list');
+            jsFilesList.innerHTML = `
+                <div class="table-responsive">
+                    <table class="table table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>File</th>
+                                <th>Type</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="js-files-table-body">
+                        </tbody>
+                    </table>
+                </div>
+            `;
+            
+            const tableBody = document.getElementById('js-files-table-body');
+            let mainJsFound = false;
+            let mainJsUrl = '';
+            
+            results.js_files.forEach(file => {
+                const tr = document.createElement('tr');
+                
+                if (file.is_main) {
+                    mainJsFound = true;
+                    mainJsUrl = file.url;
+                }
+                
+                tr.innerHTML = `
+                    <td>${file.url}</td>
+                    <td>${file.is_main ? '<span class="badge badge-success">Main</span>' : '<span class="badge badge-secondary">Regular</span>'}</td>
+                    <td>
+                        <a href="${results.domain}${file.url}" target="_blank" class="btn btn-sm btn-outline-primary">
+                            <i class="fas fa-external-link-alt"></i>
+                        </a>
+                    </td>
+                `;
+                
+                tableBody.appendChild(tr);
+            });
+            
+            // Show main.js section if found
+            if (mainJsFound) {
+                document.getElementById('mainjs-section').style.display = 'block';
+                document.getElementById('mainjs-url').innerText = mainJsUrl;
+                document.getElementById('analyze-mainjs-btn').href = `/mainjs-analyzer?domain_id=${results.domain_id}`;
+            }
+        } else {
+            document.getElementById('js-files-list').innerHTML = 
+                '<div class="alert alert-info">No JavaScript files detected</div>';
+        }
+    } else {
+        // Show inactive site message
+        document.getElementById('inactive-site-message').style.display = 'block';
+        
+        // Update summary card
+        document.getElementById('summary-card').style.display = 'block';
+        document.getElementById('summary-domain').innerText = results.domain;
+        document.getElementById('summary-status').innerText = 'INACTIVE';
+        document.getElementById('summary-status').className = 'badge badge-danger badge-lg py-2 px-3';
+        document.getElementById('summary-tech-count').innerText = '0';
+        document.getElementById('summary-vuln-count').innerText = '0';
+        document.getElementById('summary-endpoint-count').innerText = '0';
+        document.getElementById('vuln-summary-section').style.display = 'none';
+    }
+}
+
+// Filter endpoints based on checkboxes
+function filterEndpoints() {
+    const showAll = document.getElementById('show-all-endpoints').checked;
+    const showApi = document.getElementById('show-api-endpoints').checked;
+    const showProtected = document.getElementById('show-protected-endpoints').checked;
+    
+    const endpoints = document.querySelectorAll('#endpoints-table-body tr');
+    
+    endpoints.forEach(endpoint => {
+        const isApi = endpoint.getAttribute('data-is-api') === 'true';
+        const isProtected = endpoint.getAttribute('data-is-protected') === 'true';
+        
+        if (showAll || (showApi && isApi) || (showProtected && isProtected)) {
+            endpoint.style.display = '';
+        } else {
+            endpoint.style.display = 'none';
+        }
+    });
+}
+
+// Terminal output handling with improved formatting
 function appendToTerminal(terminalId, text, className = '') {
     const terminal = document.getElementById(terminalId);
     if (!terminal) return;
+    
     const line = document.createElement('div');
     if (className) {
         line.className = className;
     }
-    // Basic HTML check (or use DOMPurify for safety if needed)
-    if (text.includes('<') && text.includes('>')) {
-         try {
-             // Extremely basic check, not foolproof XSS protection
-             const temp = document.createElement('div');
-             temp.innerHTML = text;
-             // Check if it created unexpected elements or scripts
-             if (temp.querySelector('script')) {
-                  line.textContent = "[HTML content blocked for safety]";
-             } else {
-                  line.innerHTML = text;
-             }
-         } catch(e) {
-              line.textContent = text; // Fallback to text if HTML parsing fails
-         }
+    
+    // Handle HTML content if present
+    if (text.includes('<') && text.includes('>') && text.includes('</')) {
+        line.innerHTML = text;
     } else {
         line.textContent = text;
     }
+    
     terminal.appendChild(line);
-    // Auto-scroll
     terminal.scrollTop = terminal.scrollHeight;
 }
 
+// Clear terminal
 function clearTerminal(terminalId) {
     const terminal = document.getElementById(terminalId);
     if (terminal) {
         terminal.innerHTML = '';
     }
 }
-*/
 
-// Handle auto-run from URL parameter (if needed for basic scanner)
+// Initialize on page load
 document.addEventListener('DOMContentLoaded', function() {
+    // Auto-run scan if URL parameters indicate to do so
     const urlParams = new URLSearchParams(window.location.search);
     const autorun = urlParams.get('autorun');
-    // Trigger scan if autorun is true and the single domain input has a value
+    
     if (autorun === 'true' && document.getElementById('domain-input').value) {
         setTimeout(runBasicScan, 500); // Delay slightly to ensure UI is ready
     }
