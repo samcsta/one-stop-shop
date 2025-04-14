@@ -17,24 +17,31 @@
     <div class="col-md-5 mb-4">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-search mr-2 text-primary"></i>Basic Scanner</h5>
+                <h5 class="mb-0"><i class="fas fa-search mr-2 text-primary"></i>Basic Scanner Input</h5>
                 <span class="badge badge-success" id="scanner-status">Scanner Ready</span>
             </div>
             <div class="card-body">
                 <form id="basic-scan-form" onsubmit="runBasicScan(); return false;">
                     <div class="form-group">
-                        <label for="domain-input">Domain:</label>
+                        <label for="domain-input">Single Domain:</label>
                         <div class="input-group">
                             <div class="input-group-prepend">
                                 <span class="input-group-text"><i class="fas fa-globe"></i></span>
                             </div>
-                            <input type="text" class="form-control" id="domain-input" 
-                                placeholder="example.com" value="{{ domain_to_scan }}" required>
+                            <input type="text" class="form-control" id="domain-input"
+                                   placeholder="example.com" value="{{ domain_to_scan }}">
                         </div>
-                        <small class="form-text text-muted">Enter domain without http:// or https://</small>
+                        <small class="form-text text-muted">Enter one domain (e.g., example.com) OR use the list below.</small>
                     </div>
-                    
+
                     <div class="form-group">
+                        <label for="domain-list-input">Domain List (One per line):</label>
+                        <textarea class="form-control" id="domain-list-input" rows="5"
+                                  placeholder="example.com&#10;sub.example.org&#10;another.net"></textarea>
+                        <small class="form-text text-muted">Enter multiple domains here OR use the single input above.</small>
+                    </div>
+                    <div class="form-group">
+                        <h6>Scan Options:</h6>
                         <div class="custom-control custom-checkbox">
                             <input type="checkbox" class="custom-control-input" id="check-technologies" checked>
                             <label class="custom-control-label" for="check-technologies">Detect Technologies</label>
@@ -52,15 +59,15 @@
                             <label class="custom-control-label" for="check-mainjs">Locate main.js Files</label>
                         </div>
                     </div>
-                    
+
                     <button type="submit" class="btn btn-primary btn-block">
-                        <i class="fas fa-search mr-2"></i>Scan Domain
+                        <i class="fas fa-search mr-2"></i>Scan Domain(s)
                     </button>
                 </form>
             </div>
         </div>
     </div>
-    
+
     <div class="col-md-7 mb-4">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
@@ -71,7 +78,7 @@
             </div>
             <div class="card-body">
                 <div class="terminal" id="scan-terminal">
-                    Basic scanner initialized and ready. Enter a domain to begin scanning.
+                    Basic scanner initialized. Enter a domain or list to begin scanning.
                 </div>
             </div>
         </div>
@@ -82,7 +89,7 @@
     <div class="col-12">
         <div class="card mb-4">
             <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0"><i class="fas fa-chart-bar mr-2 text-primary"></i>Scan Results</h5>
+                <h5 class="mb-0"><i class="fas fa-chart-bar mr-2 text-primary"></i>Last Scan Results (Summary)</h5>
                 <div id="results-header-badge" style="display: none;">
                     <span class="badge badge-primary">Basic Scan</span>
                     <span class="badge ml-2" id="status-badge">Unknown</span>
@@ -90,34 +97,30 @@
             </div>
             <div class="card-body">
                 <div id="results-container" style="display: none;">
-                    <!-- Active Site Tab Navigation -->
-                    <ul class="nav nav-tabs" id="resultTabs" role="tablist">
+                     <ul class="nav nav-tabs" id="resultTabs" role="tablist">
                         <li class="nav-item">
-                            <a class="nav-link active" id="technologies-tab" data-toggle="tab" href="#technologies" role="tab">
+                            <a class="nav-link active" id="technologies-tab-display" data-toggle="tab" href="#technologies-display" role="tab"> {/* Changed ID */}
                                 <i class="fas fa-code mr-1"></i>Technologies
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" id="headers-tab" data-toggle="tab" href="#headers" role="tab">
+                            <a class="nav-link" id="headers-tab-display" data-toggle="tab" href="#headers-display" role="tab"> {/* Changed ID */}
                                 <i class="fas fa-exchange-alt mr-1"></i>HTTP Headers
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" id="vulnerabilities-tab" data-toggle="tab" href="#vulnerabilities" role="tab">
+                            <a class="nav-link" id="vulnerabilities-tab-display" data-toggle="tab" href="#vulnerabilities-display" role="tab"> {/* Changed ID */}
                                 <i class="fas fa-bug mr-1"></i>Vulnerabilities
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" id="js-files-tab" data-toggle="tab" href="#js-files" role="tab">
+                            <a class="nav-link" id="js-files-tab-display" data-toggle="tab" href="#js-files-display" role="tab"> {/* Changed ID */}
                                 <i class="fas fa-file-code mr-1"></i>JavaScript Files
                             </a>
                         </li>
                     </ul>
-                    
-                    <!-- Tab Content -->
                     <div class="tab-content p-3 border border-top-0 rounded-bottom" id="resultTabsContent">
-                        <!-- Technologies Tab -->
-                        <div class="tab-pane fade show active" id="technologies" role="tabpanel">
+                        <div class="tab-pane fade show active" id="technologies-display" role="tabpanel"> {/* Changed ID */}
                             <div class="row">
                                 <div class="col-md-6">
                                     <h6 class="mb-3">Detected Technologies</h6>
@@ -133,9 +136,7 @@
                                 </div>
                             </div>
                         </div>
-                        
-                        <!-- HTTP Headers Tab -->
-                        <div class="tab-pane fade" id="headers" role="tabpanel">
+                        <div class="tab-pane fade" id="headers-display" role="tabpanel"> {/* Changed ID */}
                             <div class="row">
                                 <div class="col-md-6">
                                     <h6 class="mb-3">Security Headers</h6>
@@ -151,16 +152,12 @@
                                 </div>
                             </div>
                         </div>
-                        
-                        <!-- Vulnerabilities Tab -->
-                        <div class="tab-pane fade" id="vulnerabilities" role="tabpanel">
+                        <div class="tab-pane fade" id="vulnerabilities-display" role="tabpanel"> {/* Changed ID */}
                             <div id="vulnerabilities-list">
                                 <div class="text-muted">No vulnerabilities detected</div>
                             </div>
                         </div>
-                        
-                        <!-- JavaScript Files Tab -->
-                        <div class="tab-pane fade" id="js-files" role="tabpanel">
+                        <div class="tab-pane fade" id="js-files-display" role="tabpanel"> {/* Changed ID */}
                             <div id="js-files-list">
                                 <div class="text-muted">No JavaScript files detected</div>
                             </div>
@@ -178,21 +175,17 @@
                         </div>
                     </div>
                 </div>
-                
-                <!-- Inactive Site Message (displayed for inactive sites) -->
                 <div id="inactive-site-message" style="display: none;">
                     <div class="alert alert-danger">
                         <h5><i class="fas fa-exclamation-triangle mr-2"></i>Site is inactive</h5>
                         <p>The domain appears to be inactive or inaccessible. No further scanning was performed.</p>
                     </div>
                 </div>
-                
-                <!-- No Scan Message (initial state) -->
                 <div id="no-scan-message">
                     <div class="text-center py-5">
                         <i class="fas fa-search fa-3x text-muted mb-3"></i>
                         <h5>No scan results yet</h5>
-                        <p class="text-muted">Enter a domain and click "Scan Domain" to start scanning.</p>
+                        <p class="text-muted">Enter a domain or list and click "Scan Domain(s)" to start scanning.</p>
                     </div>
                 </div>
             </div>
@@ -202,238 +195,173 @@
 {% endblock %}
 
 {% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.min.js"></script>
 <script>
-// Run basic scan function
+// Connect to Socket.IO for real-time updates
+const socket = io();
+let currentScanGroupId = null; // Track the group ID for multiple scans
+
+// Handle basic scan updates from backend
+socket.on('scan_update', function(data) {
+    // Display all messages regardless of status or specific scan_id within the group
+    let message = `[${data.timestamp.split('T')[1].split('.')[0]}][${data.scan_id}] ${data.message}`; // Simple timestamp + scan ID prefix
+    let messageClass = '';
+
+    // Determine class based on status for coloring (optional but helpful)
+    switch(data.status) {
+        case 'error': messageClass = 'text-danger'; break;
+        case 'warning': messageClass = 'text-warning'; break;
+        case 'success': messageClass = 'text-success'; break;
+        case 'info': messageClass = 'text-info'; break;
+        case 'debug': messageClass = 'text-muted small'; break; // Make debug logs less prominent
+        case 'critical': messageClass = 'severity-critical'; break;
+        case 'high': messageClass = 'severity-high'; break;
+        case 'medium': messageClass = 'severity-medium'; break;
+        case 'low': messageClass = 'severity-low'; break;
+        default: messageClass = '';
+    }
+
+    appendToTerminal('scan-terminal', message, messageClass);
+
+    // Update results for the *last* completed scan (simple approach)
+    // A more robust approach would track completion per scan_id
+    if (data.message.startsWith("Basic scan finished")) {
+         document.getElementById('scanner-status').className = 'badge badge-success';
+         document.getElementById('scanner-status').innerText = 'Scan(s) Complete';
+         // You might want to fetch final results for the *specific* domain ID
+         // related to this final message if you need to update the results table.
+         // For simplicity, this example doesn't auto-update the results table on completion.
+    }
+});
+
+
+// Modified function to handle single or list input
 function runBasicScan() {
-    const domain = document.getElementById('domain-input').value.trim();
-    if (!domain) {
-        alert('Please enter a domain to scan');
+    const singleDomain = document.getElementById('domain-input').value.trim();
+    const domainList = document.getElementById('domain-list-input').value.trim();
+    let requestBody = '';
+    let domainsToScanCount = 0;
+
+    // Prioritize list if both are filled, or check individually
+    if (domainList) {
+        requestBody = `domain_list=${encodeURIComponent(domainList)}`;
+        domainsToScanCount = domainList.split('\n').filter(d => d.trim()).length;
+    } else if (singleDomain) {
+        requestBody = `domain=${encodeURIComponent(singleDomain)}`;
+        domainsToScanCount = 1;
+    } else {
+        alert('Please enter a single domain OR a list of domains.');
         return;
     }
-    
+
     // Update UI to show scanning state
     document.getElementById('scanner-status').className = 'badge badge-warning';
-    document.getElementById('scanner-status').innerText = 'Scanning...';
-    
-    // Clear terminal and results
+    document.getElementById('scanner-status').innerText = `Scanning ${domainsToScanCount} domain(s)...`;
+
+    // Clear terminal and previous results display
     clearTerminal('scan-terminal');
-    resetResults();
-    
-    appendToTerminal('scan-terminal', `Starting basic scan for ${domain}...`);
-    
-    // Get options
-    const checkTechnologies = document.getElementById('check-technologies').checked;
-    const checkVersions = document.getElementById('check-versions').checked;
-    const checkHeaders = document.getElementById('check-headers').checked;
-    const checkMainJs = document.getElementById('check-mainjs').checked;
-    
-    const options = {
-        technologies: checkTechnologies,
-        versions: checkVersions,
-        headers: checkHeaders,
-        mainjs: checkMainJs
-    };
-    
-    appendToTerminal('scan-terminal', `Options: ${JSON.stringify(options)}`);
-    
+    resetResultsDisplay(); // Use a separate function to clear the results area
+
+    appendToTerminal('scan-terminal', `Starting basic scan for ${domainsToScanCount} domain(s)...`);
+
     // Make AJAX request to backend
     fetch('/run-basic-scan', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: `domain=${encodeURIComponent(domain)}`
+        body: requestBody // Send either 'domain' or 'domain_list'
     })
     .then(response => response.json())
     .then(data => {
-        // Update scanner status
-        document.getElementById('scanner-status').className = 'badge badge-success';
-        document.getElementById('scanner-status').innerText = 'Scan Complete';
-        
-        // Update terminal with summary
-        appendToTerminal('scan-terminal', `\nScan completed for ${data.domain}`);
-        appendToTerminal('scan-terminal', `Status: ${data.status}`, data.status === 'ACTIVE' ? 'text-success' : 'text-danger');
-        
-        // Display results
-        displayResults(data);
+        if (data.error) {
+            appendToTerminal('scan-terminal', `Error starting scan: ${data.error}`, 'text-danger');
+            document.getElementById('scanner-status').className = 'badge badge-danger';
+            document.getElementById('scanner-status').innerText = 'Error';
+        } else {
+            currentScanGroupId = data.scan_group_id; // Store the group ID
+            appendToTerminal('scan-terminal', `Scan initiated for ${domainsToScanCount} domain(s). Group ID: ${currentScanGroupId}`, 'text-info');
+            // Status will update based on SocketIO messages
+        }
     })
     .catch(error => {
-        // Update scanner status
         document.getElementById('scanner-status').className = 'badge badge-danger';
-        document.getElementById('scanner-status').innerText = 'Scan Failed';
-        
-        appendToTerminal('scan-terminal', `Error during scan: ${error}`, 'text-danger');
+        document.getElementById('scanner-status').innerText = 'Request Failed';
+        appendToTerminal('scan-terminal', `Error initiating scan request: ${error}`, 'text-danger');
     });
 }
 
-// Reset results
-function resetResults() {
-    // Hide results sections
+// Reset results display area
+function resetResultsDisplay() {
     document.getElementById('results-container').style.display = 'none';
     document.getElementById('inactive-site-message').style.display = 'none';
-    document.getElementById('no-scan-message').style.display = 'block';
+    document.getElementById('no-scan-message').style.display = 'block'; // Show the initial message
     document.getElementById('results-header-badge').style.display = 'none';
     document.getElementById('mainjs-section').style.display = 'none';
-    
-    // Clear results
-    document.getElementById('technologies-list').innerHTML = '<div class="text-muted">No technologies detected</div>';
-    document.getElementById('version-info').innerHTML = '<div class="text-muted">No version information available</div>';
-    document.getElementById('security-headers').innerHTML = '<div class="text-muted">No security headers analyzed</div>';
-    document.getElementById('all-headers').innerHTML = '<div class="text-muted">No HTTP headers available</div>';
-    document.getElementById('vulnerabilities-list').innerHTML = '<div class="text-muted">No vulnerabilities detected</div>';
-    document.getElementById('js-files-list').innerHTML = '<div class="text-muted">No JavaScript files detected</div>';
+
+    // Clear content within tabs
+    document.getElementById('technologies-list').innerHTML = '<div class="text-muted">Scan needed</div>';
+    document.getElementById('version-info').innerHTML = '<div class="text-muted">Scan needed</div>';
+    document.getElementById('security-headers').innerHTML = '<div class="text-muted">Scan needed</div>';
+    document.getElementById('all-headers').innerHTML = '<div class="text-muted">Scan needed</div>';
+    document.getElementById('vulnerabilities-list').innerHTML = '<div class="text-muted">Scan needed</div>';
+    document.getElementById('js-files-list').innerHTML = '<div class="text-muted">Scan needed</div>';
+
+     // Reset tab badges if they were updated dynamically (optional)
+     document.getElementById('vulnerabilities-tab-display').innerHTML = '<i class="fas fa-bug mr-1"></i>Vulnerabilities';
+     document.getElementById('js-files-tab-display').innerHTML = '<i class="fas fa-file-code mr-1"></i>JavaScript Files';
 }
 
-// Display results
-function displayResults(data) {
-    // Hide no scan message
-    document.getElementById('no-scan-message').style.display = 'none';
-    document.getElementById('results-header-badge').style.display = 'block';
-    
-    // Set status badge
-    const statusBadge = document.getElementById('status-badge');
-    statusBadge.innerText = data.status;
-    statusBadge.className = data.status === 'ACTIVE' ? 'badge badge-success' : 'badge badge-danger';
-    
-    // Check if site is active
-    if (data.status !== 'ACTIVE') {
-        document.getElementById('inactive-site-message').style.display = 'block';
-        return;
-    }
-    
-    // Show results container
-    document.getElementById('results-container').style.display = 'block';
-    
-    // Display technologies
-    if (data.technologies && data.technologies.length > 0) {
-        const techListHtml = data.technologies.map(tech => 
-            `<div class="tech-badge">${tech}</div>`
-        ).join('');
-        document.getElementById('technologies-list').innerHTML = techListHtml;
-    }
-    
-    // Display version info
-    if (data.version_info && Object.keys(data.version_info).length > 0) {
-        const versionInfoHtml = Object.entries(data.version_info).map(([tech, version]) => 
-            `<div class="alert alert-info py-2 px-3 mb-2">
-                <strong>${tech}:</strong> ${version}
-            </div>`
-        ).join('');
-        document.getElementById('version-info').innerHTML = versionInfoHtml;
-    }
-    
-    // Display security headers
-    if (data.security_headers) {
-        const securityHeadersHtml = Object.entries(data.security_headers).map(([header, info]) => {
-            const statusClass = info.status === 'Present' ? 'success' : 'danger';
-            const icon = info.status === 'Present' ? 'check-circle' : 'times-circle';
-            return `
-                <div class="alert alert-${statusClass} py-2 px-3 mb-2">
-                    <strong><i class="fas fa-${icon} mr-1"></i> ${header}:</strong> ${info.status}
-                    <small class="d-block text-muted">${info.description}</small>
-                    ${info.value ? `<small class="d-block">Value: ${info.value}</small>` : ''}
-                </div>
-            `;
-        }).join('');
-        document.getElementById('security-headers').innerHTML = securityHeadersHtml;
-    }
-    
-    // Display all HTTP headers
-    if (data.http_headers && Object.keys(data.http_headers).length > 0) {
-        const headersHtml = Object.entries(data.http_headers).map(([header, value]) => 
-            `<div class="mb-2">
-                <strong>${header}:</strong>
-                <div class="text-monospace small">${value}</div>
-            </div>`
-        ).join('');
-        document.getElementById('all-headers').innerHTML = headersHtml;
-    }
-    
-    // Display vulnerabilities
-    if (data.vulnerabilities && data.vulnerabilities.length > 0) {
-        const vulnsHtml = data.vulnerabilities.map(vuln => 
-            `<div class="alert alert-danger mb-2">
-                <h6 class="mb-1">${vuln}</h6>
-            </div>`
-        ).join('');
-        document.getElementById('vulnerabilities-list').innerHTML = vulnsHtml;
-        
-        // Update tab with count
-        document.getElementById('vulnerabilities-tab').innerHTML = 
-            `<i class="fas fa-bug mr-1"></i>Vulnerabilities <span class="badge badge-danger ml-1">${data.vulnerabilities.length}</span>`;
-    }
-    
-    // Display JS files
-    if (data.endpoints) {
-        const jsFiles = data.endpoints.filter(endpoint => endpoint.includes('.js'));
-        if (jsFiles.length > 0) {
-            const jsFilesHtml = jsFiles.map(file => 
-                `<div class="mb-2">
-                    <i class="fas fa-file-code mr-1 text-primary"></i>
-                    <a href="${file}" target="_blank">${file.split('/').pop()}</a>
-                </div>`
-            ).join('');
-            document.getElementById('js-files-list').innerHTML = jsFilesHtml;
-        }
-    }
-    
-    // Check if main.js was found
-    if (data.mainjs_found && data.mainjs_url) {
-        document.getElementById('mainjs-section').style.display = 'block';
-        document.getElementById('mainjs-url').textContent = data.mainjs_url;
-        
-        // Set up the analyze button
-        const analyzeBtn = document.getElementById('analyze-mainjs-btn');
-        analyzeBtn.href = `/mainjs-analyzer?domain_id=${data.domain_id}`;
-        
-        // Update tab to highlight main.js found
-        document.getElementById('js-files-tab').innerHTML = 
-            `<i class="fas fa-file-code mr-1"></i>JavaScript Files <span class="badge badge-success ml-1">main.js</span>`;
-    }
-    
-    // Add view details button to terminal
-    if (data.domain_id) {
-        appendToTerminal('scan-terminal', `\n<a href="/domain/${data.domain_id}" class="btn btn-primary mt-2">View Complete Results in Domain Details</a>`, '');
-    }
-}
+// --- Terminal Helpers --- (Assumes appendToTerminal and clearTerminal are globally available or defined here/in main.js)
+// Using the version from main.js if it's loaded globally, otherwise define locally if needed.
+// Make sure these are accessible. If not defined in main.js, define them here:
 
-// Terminal output handling
+/*
 function appendToTerminal(terminalId, text, className = '') {
     const terminal = document.getElementById(terminalId);
     if (!terminal) return;
-    
     const line = document.createElement('div');
     if (className) {
         line.className = className;
     }
-    
-    // Handle HTML content if present
-    if (text.includes('<') && text.includes('>') && text.includes('</')) {
-        line.innerHTML = text;
+    // Basic HTML check (or use DOMPurify for safety if needed)
+    if (text.includes('<') && text.includes('>')) {
+         try {
+             // Extremely basic check, not foolproof XSS protection
+             const temp = document.createElement('div');
+             temp.innerHTML = text;
+             // Check if it created unexpected elements or scripts
+             if (temp.querySelector('script')) {
+                  line.textContent = "[HTML content blocked for safety]";
+             } else {
+                  line.innerHTML = text;
+             }
+         } catch(e) {
+              line.textContent = text; // Fallback to text if HTML parsing fails
+         }
     } else {
         line.textContent = text;
     }
-    
     terminal.appendChild(line);
+    // Auto-scroll
     terminal.scrollTop = terminal.scrollHeight;
 }
 
-// Clear terminal
 function clearTerminal(terminalId) {
     const terminal = document.getElementById(terminalId);
     if (terminal) {
         terminal.innerHTML = '';
     }
 }
+*/
 
-// Handle auto-run from URL parameter
+// Handle auto-run from URL parameter (if needed for basic scanner)
 document.addEventListener('DOMContentLoaded', function() {
-    // Auto-run scan if URL parameters indicate to do so
     const urlParams = new URLSearchParams(window.location.search);
     const autorun = urlParams.get('autorun');
-    
+    // Trigger scan if autorun is true and the single domain input has a value
     if (autorun === 'true' && document.getElementById('domain-input').value) {
-        setTimeout(runBasicScan, 500);
+        setTimeout(runBasicScan, 500); // Delay slightly to ensure UI is ready
     }
 });
 </script>

@@ -16,6 +16,9 @@
         {% endif %}
         
         <form id="bypass-form" onsubmit="runApiBypass(); return false;">
+            <!-- Hidden input for domain ID -->
+            <input type="hidden" id="domain-id-input" name="domain_id" value="{{ domain_id }}" />
+            
             <div class="form-group">
                 <label for="bypass-domain-input">Domain:</label>
                 <div class="input-group">
@@ -138,9 +141,18 @@ function appendToTerminal(terminalId, text, className = '') {
     terminal.scrollTop = terminal.scrollHeight;
 }
 
+// Clear terminal
+function clearTerminal(terminalId) {
+    const terminal = document.getElementById(terminalId);
+    if (terminal) {
+        terminal.innerHTML = '';
+    }
+}
+
 function runApiBypass() {
     const domain = document.getElementById('bypass-domain-input').value.trim();
     const wordlist = document.getElementById('wordlist-select').value;
+    const domainId = document.getElementById('domain-id-input')?.value;
     
     if (!domain || !wordlist) {
         alert('Please enter a domain and select a wordlist');
@@ -161,7 +173,7 @@ function runApiBypass() {
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
         },
-        body: `domain=${encodeURIComponent(domain)}&wordlist=${encodeURIComponent(wordlist)}`
+        body: `domain=${encodeURIComponent(domain)}&wordlist=${encodeURIComponent(wordlist)}${domainId ? '&domain_id=' + encodeURIComponent(domainId) : ''}`
     })
     .then(response => response.json())
     .then(data => {
@@ -190,6 +202,30 @@ function runApiBypass() {
                 item.innerHTML = `<code>${bypass}</code>`;
                 bypassList.appendChild(item);
             });
+            
+            // If we have domain_id, store results in database via API call
+            if (domainId) {
+                fetch(`/api-bypass/store/${domainId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        domain: domain,
+                        successful_bypasses: data.successful_bypasses,
+                        recommendations: data.recommendations
+                    })
+                })
+                .then(res => res.json())
+                .then(storeResult => {
+                    if (storeResult.success) {
+                        appendToTerminal('bypass-terminal', '\nBypass results stored successfully and will appear in Domain Details page', 'success-line');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error storing results:', error);
+                });
+            }
         } else {
             document.getElementById('recommendations-section').style.display = 'block';
             document.getElementById('recommendations-content').innerText = "No successful bypasses found. The endpoint may not be vulnerable to 403 bypass techniques.";

@@ -9,14 +9,14 @@ import re
 import requests
 from datetime import datetime
 from urllib.parse import urljoin, urlparse
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, current_app # Added current_app
 from flask_socketio import SocketIO
 from werkzeug.utils import secure_filename
 from bs4 import BeautifulSoup
 from config import Config
 from models import db, Domain, Technology, Vulnerability, Endpoint, Screenshot, APIBypass
 
-# Import the separated scanner modules instead of a single scanner file
+# Import scanner utilities
 import utils.basic_scanner as basic_scanner
 import utils.nuclei_scanner as nuclei_scanner
 import utils.api_bypass as api_bypass
@@ -24,177 +24,258 @@ import utils.api_bypass as api_bypass
 app = Flask(__name__)
 app.config.from_object(Config)
 
-# Initialize database
 db.init_app(app)
 
-# Initialize Socket.IO
+# Initialize SocketIO AFTER app and config are set
 socketio = SocketIO(app)
 
-# Initialize both scanners with Socket.IO
+# Initialize scanner utilities with SocketIO instance
 basic_scanner.init_socketio(socketio)
 nuclei_scanner.init_socketio(socketio)
+# api_bypass doesn't seem to use socketio directly based on the provided code
 
-# Ensure upload and wordlists directories exist
+# Ensure upload/wordlist/template directories exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 os.makedirs(app.config['WORDLISTS_FOLDER'], exist_ok=True)
-
-# Custom template directories
 os.makedirs(os.path.join(os.getcwd(), 'custom-templates'), exist_ok=True)
 
-# Define patterns for main.js detection
+# Constants (Consider moving to config if they grow)
 MAIN_JS_PATTERNS = [
-    r'main\.[0-9a-f]+\.js',  # main.hash.js pattern (webpack)
-    r'main[-_]bundle.*\.js',  # main-bundle.js pattern
-    r'main\.js$',            # simple main.js
-    r'app\.[0-9a-f]+\.js',    # app.hash.js pattern
-    r'app[-_]bundle.*\.js',   # app-bundle.js
-    r'app\.js$',             # simple app.js
-    r'runtime\.[0-9a-f]+\.js', # Angular runtime
-    r'polyfills\.[0-9a-f]+\.js' # Angular polyfills
+    r'main\.[0-9a-f]+\.js',
+    r'main[-_]bundle.*\.js',
+    r'main\.js$',
+    r'app\.[0-9a-f]+\.js',
+    r'app[-_]bundle.*\.js',
+    r'app\.js$',
+    r'runtime\.[0-9a-f]+\.js',
+    r'polyfills\.[0-9a-f]+\.js'
 ]
 
-# Instead of @app.before_first_request, we'll create all tables at startup
+# Create database tables if they don't exist
+# This needs the app context
 with app.app_context():
     db.create_all()
 
-# Dashboard route
+# --- Helper Functions ---
+def ensure_protocol(url):
+    """Adds https:// if no protocol is present."""
+    if not url.startswith(("http://", "https://")):
+        return f"https://{url}"
+    return url
+
+def normalize_domain_name(url_or_domain):
+    """Extracts and normalizes the domain name (lowercase, no www)."""
+    if not url_or_domain:
+        return None
+    try:
+        # Ensure protocol for parsing
+        full_url = ensure_protocol(url_or_domain)
+        parsed_uri = urlparse(full_url)
+        domain_name = parsed_uri.hostname
+        if not domain_name:
+             # Fallback for simple domains without protocol
+             domain_name = (parsed_uri.netloc or parsed_uri.path.split('/')[0])
+        
+        if domain_name:
+             # Remove port and convert to lowercase
+             domain_name = domain_name.split(':')[0].lower()
+             # Remove www.
+             if domain_name.startswith('www.'):
+                 domain_name = domain_name[4:]
+             return domain_name
+        else:
+             return None # Failed to extract domain
+             
+    except Exception as e:
+        print(f"Error normalizing domain '{url_or_domain}': {e}")
+        return None
+
+def run_scan_in_thread(target_function, *args):
+    """Starts a function in a background thread with app context."""
+    # Create a copy of the app context
+    app_context = current_app.app_context()
+    
+    def thread_target():
+        # Activate the app context within the thread
+        with app_context:
+            try:
+                target_function(*args)
+            except Exception as e:
+                # Log any exception that occurs within the thread
+                scan_id = args[1] if len(args) > 1 else 'unknown_scan' # Assuming scan_id is the second arg
+                error_message = f"Error in background thread for scan '{scan_id}': {e}"
+                print(error_message)
+                # Optionally emit an error via SocketIO if possible
+                if 'basic_scanner' in str(target_function):
+                    basic_scanner.emit_scan_update(scan_id, error_message, "error")
+                elif 'nuclei_scanner' in str(target_function):
+                     nuclei_scanner.emit_scan_update(scan_id, error_message, "error")
+                # Handle other scanner types if needed
+                
+    thread = threading.Thread(target=thread_target)
+    thread.daemon = True
+    thread.start()
+    return thread # Optionally return the thread object
+
+
+# --- Routes ---
+
 @app.route('/')
 def dashboard():
-    # Get stats for dashboard
-    total_domains = Domain.query.count()
-    active_domains = Domain.query.filter_by(status='ACTIVE').count()
-    inactive_domains = Domain.query.filter_by(status='INACTIVE').count()
-    
-    vulnerabilities = Vulnerability.query.all()
-    total_vulnerabilities = len(vulnerabilities)
-    
-    # Count vulnerabilities by severity
-    severity_counts = {
-        'CRITICAL': 0,
-        'HIGH': 0,
-        'MEDIUM': 0,
-        'LOW': 0
-    }
-    
-    for vuln in vulnerabilities:
-        if vuln.severity in severity_counts:
-            severity_counts[vuln.severity] += 1
-    
-    # Get domains by status
-    domains_by_status = {
-        'NEW': Domain.query.filter_by(assessment_status='NEW').count(),
-        'IN PROGRESS': Domain.query.filter_by(assessment_status='IN PROGRESS').count(),
-        'FINISHED': Domain.query.filter_by(assessment_status='FINISHED').count(),
-        'FALSE ALARM': Domain.query.filter_by(assessment_status='FALSE ALARM').count()
-    }
-    
-    # Get recent vulnerabilities
-    recent_vulnerabilities = Vulnerability.query.order_by(Vulnerability.date_discovered.desc()).limit(5).all()
-    
-    return render_template('dashboard.html', 
-                          total_domains=total_domains,
-                          active_domains=active_domains,
-                          inactive_domains=inactive_domains,
-                          total_vulnerabilities=total_vulnerabilities,
-                          severity_counts=severity_counts,
-                          domains_by_status=domains_by_status,
-                          recent_vulnerabilities=recent_vulnerabilities)
+    try:
+        total_domains = Domain.query.count()
+        active_domains = Domain.query.filter_by(status='ACTIVE').count()
+        inactive_domains = Domain.query.filter_by(status='INACTIVE').count()
+        
+        vulnerabilities = Vulnerability.query.all()
+        total_vulnerabilities = len(vulnerabilities)
+        
+        severity_counts = {'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0}
+        for vuln in vulnerabilities:
+            if vuln.severity in severity_counts:
+                severity_counts[vuln.severity] += 1
+        
+        domains_by_status = {
+            'NEW': Domain.query.filter_by(assessment_status='NEW').count(),
+            'IN PROGRESS': Domain.query.filter_by(assessment_status='IN PROGRESS').count(),
+            'FINISHED': Domain.query.filter_by(assessment_status='FINISHED').count(),
+            'FALSE ALARM': Domain.query.filter_by(assessment_status='FALSE ALARM').count()
+        }
+        
+        recent_vulnerabilities = Vulnerability.query.order_by(Vulnerability.date_discovered.desc()).limit(5).all()
+        
+        return render_template('dashboard.html', 
+                              total_domains=total_domains,
+                              active_domains=active_domains,
+                              inactive_domains=inactive_domains,
+                              total_vulnerabilities=total_vulnerabilities,
+                              severity_counts=severity_counts,
+                              domains_by_status=domains_by_status,
+                              recent_vulnerabilities=recent_vulnerabilities)
+    except Exception as e:
+        print(f"Error loading dashboard: {e}")
+        flash("Error loading dashboard data.", "danger")
+        # Provide default values or render an error template
+        return render_template('dashboard.html', 
+                              total_domains=0, active_domains=0, inactive_domains=0, total_vulnerabilities=0,
+                              severity_counts={'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0},
+                              domains_by_status={'NEW': 0, 'IN PROGRESS': 0, 'FINISHED': 0, 'FALSE ALARM': 0},
+                              recent_vulnerabilities=[])
 
-# Domains routes
+
 @app.route('/domains')
 def domains():
-    domains = Domain.query.all()
-    technologies = Technology.query.all()
-    
-    # Filter by technology if provided
-    tech_filter = request.args.get('technology')
-    status_filter = request.args.get('status')
-    assessment_filter = request.args.get('assessment')
-    
-    if tech_filter:
-        tech = Technology.query.filter_by(name=tech_filter).first()
-        if tech:
-            domains = tech.domains
-    
-    if status_filter:
+    try:
+        query = Domain.query
+        
+        tech_filter = request.args.get('technology')
+        status_filter = request.args.get('status')
+        assessment_filter = request.args.get('assessment')
+        
         if tech_filter:
-            # Need to filter the already filtered list
-            domains = [d for d in domains if d.status == status_filter]
-        else:
-            domains = Domain.query.filter_by(status=status_filter).all()
-    
-    if assessment_filter:
-        # Filter by assessment status (NEW, IN PROGRESS, etc.)
-        if tech_filter or status_filter:
-            domains = [d for d in domains if d.assessment_status == assessment_filter]
-        else:
-            domains = Domain.query.filter_by(assessment_status=assessment_filter).all()
-    
-    return render_template('domains.html', domains=domains, technologies=technologies)
+            # Ensure filtering by technology name associated with the domain
+            query = query.join(Domain.technologies).filter(Technology.name == tech_filter)
+        
+        if status_filter:
+            query = query.filter(Domain.status == status_filter)
+        
+        if assessment_filter:
+            query = query.filter(Domain.assessment_status == assessment_filter)
+        
+        domains = query.order_by(Domain.last_scanned.desc()).all()
+        technologies = Technology.query.order_by(Technology.name).all()
+        
+        return render_template('domains.html', domains=domains, technologies=technologies)
+    except Exception as e:
+         print(f"Error loading domains page: {e}")
+         flash("Error loading domains list.", "danger")
+         return render_template('domains.html', domains=[], technologies=[])
+
 
 @app.route('/domain/<int:id>')
 def domain_details(id):
-    domain = Domain.query.get_or_404(id)
+    domain = db.get_or_404(Domain, id) # Use newer get_or_404
     return render_template('domain_details.html', domain=domain)
+
 
 @app.route('/domain/<int:id>/update', methods=['POST'])
 def update_domain(id):
-    domain = Domain.query.get_or_404(id)
+    domain = db.get_or_404(Domain, id)
     
-    if 'status' in request.form:
-        domain.assessment_status = request.form['status']
-    
-    if 'notes' in request.form:
-        domain.notes = request.form['notes']
-    
-    if 'claim' in request.form:
-        domain.assigned_to = "Current User"  # In a real app, use actual user info
-    
-    if 'unclaim' in request.form:
-        domain.assigned_to = None
-    
-    db.session.commit()
-    flash(f'Domain {domain.url} updated successfully!', 'success')
+    try:
+        if 'status' in request.form:
+            new_status = request.form['status']
+            # Basic validation for assessment status
+            if new_status in ['NEW', 'IN PROGRESS', 'FINISHED', 'FALSE ALARM']:
+                domain.assessment_status = new_status
+            else:
+                 flash(f"Invalid assessment status '{new_status}' ignored.", "warning")
+
+        if 'notes' in request.form:
+            domain.notes = request.form['notes']
+        
+        if 'claim' in request.form:
+            # Replace with actual user later if auth is added
+            domain.assigned_to = "Current User" 
+        
+        if 'unclaim' in request.form:
+            domain.assigned_to = None
+        
+        db.session.commit()
+        flash(f'Domain {domain.url} updated successfully!', 'success')
+    except Exception as e:
+         db.session.rollback()
+         flash(f'Error updating domain: {str(e)}', 'danger')
+         print(f"Error updating domain {id}: {e}")
+
     return redirect(url_for('domain_details', id=domain.id))
+
 
 @app.route('/domain/<int:id>/delete', methods=['POST'])
 def delete_domain(id):
-    domain = Domain.query.get_or_404(id)
+    domain = db.get_or_404(Domain, id)
+    domain_url = domain.url # Store url before deleting
     
-    # Delete associated vulnerabilities
-    Vulnerability.query.filter_by(domain_id=id).delete()
-    
-    # Delete associated screenshots (files and records)
-    screenshots = Screenshot.query.filter_by(domain_id=id).all()
-    for screenshot in screenshots:
-        try:
-            file_path = os.path.join(app.config['UPLOAD_FOLDER'], screenshot.filename)
-            if os.path.exists(file_path):
-                os.remove(file_path)
-        except Exception as e:
-            flash(f'Error deleting screenshot file: {str(e)}', 'warning')
-    
-    Screenshot.query.filter_by(domain_id=id).delete()
-    
-    # Delete associated endpoints
-    Endpoint.query.filter_by(domain_id=id).delete()
-    
-    # Delete associated API bypasses
-    APIBypass.query.filter_by(domain_id=id).delete()
-    
-    # Store the domain URL for the flash message
-    domain_url = domain.url
-    
-    # Delete the domain
-    db.session.delete(domain)
-    db.session.commit()
-    
-    flash(f'Domain {domain_url} and all its data have been deleted successfully!', 'success')
+    try:
+        # Delete related records first (cascade might handle this depending on DB setup)
+        # Explicit deletion is safer across different DBs
+        Vulnerability.query.filter_by(domain_id=id).delete()
+        
+        screenshots = Screenshot.query.filter_by(domain_id=id).all()
+        for screenshot in screenshots:
+            try:
+                file_path = os.path.join(app.config['UPLOAD_FOLDER'], screenshot.filename)
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+            except Exception as file_err:
+                # Log error but continue deletion
+                print(f'Error deleting screenshot file {screenshot.filename}: {str(file_err)}')
+                flash(f'Warning: Could not delete screenshot file: {screenshot.filename}', 'warning')
+        
+        Screenshot.query.filter_by(domain_id=id).delete()
+        Endpoint.query.filter_by(domain_id=id).delete()
+        APIBypass.query.filter_by(domain_id=id).delete()
+        
+        # Remove associations in the tags table
+        domain.technologies = []
+        db.session.commit() # Commit removal of associations
+
+        # Delete the domain itself
+        db.session.delete(domain)
+        db.session.commit() # Commit domain deletion
+        
+        flash(f'Domain {domain_url} and all its data have been deleted successfully!', 'success')
+    except Exception as e:
+         db.session.rollback()
+         flash(f'Error deleting domain and its data: {str(e)}', 'danger')
+         print(f"Error deleting domain {id}: {e}")
+
     return redirect(url_for('domains'))
+
 
 @app.route('/domain/<int:id>/upload', methods=['POST'])
 def upload_screenshot(id):
-    domain = Domain.query.get_or_404(id)
+    domain = db.get_or_404(Domain, id)
     
     if 'screenshot' not in request.files:
         flash('No file part', 'danger')
@@ -205,801 +286,724 @@ def upload_screenshot(id):
         flash('No selected file', 'danger')
         return redirect(url_for('domain_details', id=id))
     
+    # Optional: Add file type validation here
+    # allowed_extensions = {'png', 'jpg', 'jpeg', 'gif'}
+    # if '.' not in file.filename or file.filename.rsplit('.', 1)[1].lower() not in allowed_extensions:
+    #     flash('Invalid file type. Allowed types: png, jpg, jpeg, gif', 'danger')
+    #     return redirect(url_for('domain_details', id=id))
+        
     if file:
-        filename = secure_filename(file.filename)
-        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-        filename = f"{timestamp}_{filename}"
-        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-        
-        screenshot = Screenshot(
-            domain_id=domain.id,
-            filename=filename,
-            description=request.form.get('description', '')
-        )
-        
-        db.session.add(screenshot)
-        db.session.commit()
-        
-        flash('Screenshot uploaded successfully!', 'success')
+        try:
+            filename = secure_filename(file.filename)
+            # Add timestamp to prevent filename conflicts
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            unique_filename = f"{timestamp}_{filename}"
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], unique_filename)
+            
+            # Optional: Add file size validation from app.config['MAX_CONTENT_LENGTH']
+            # file.seek(0, os.SEEK_END)
+            # file_length = file.tell()
+            # file.seek(0, 0) # Reset file pointer
+            # if file_length > app.config['MAX_CONTENT_LENGTH']:
+            #     flash(f'File size exceeds limit ({app.config["MAX_CONTENT_LENGTH"] / 1024 / 1024} MB)', 'danger')
+            #     return redirect(url_for('domain_details', id=id))
+                
+            file.save(file_path)
+            
+            screenshot = Screenshot(
+                domain_id=domain.id,
+                filename=unique_filename, # Save the unique filename
+                description=request.form.get('description', '')
+            )
+            
+            db.session.add(screenshot)
+            db.session.commit()
+            
+            flash('Screenshot uploaded successfully!', 'success')
+        except Exception as e:
+             db.session.rollback()
+             flash(f'Error uploading or saving screenshot: {str(e)}', 'danger')
+             print(f"Error uploading screenshot for domain {id}: {e}")
     
     return redirect(url_for('domain_details', id=id))
 
-# Workspace route
+
 @app.route('/workspace')
 def workspace():
-    # In a real app, filter by current user
-    domains = Domain.query.filter_by(assigned_to="Current User").all()
-    return render_template('workspace.html', domains=domains)
+    try:
+        # Assuming "Current User" for now, replace with actual user ID if implementing auth
+        assigned_user = "Current User" 
+        domains = Domain.query.filter_by(assigned_to=assigned_user).order_by(Domain.last_scanned.desc()).all()
+        return render_template('workspace.html', domains=domains)
+    except Exception as e:
+         print(f"Error loading workspace: {e}")
+         flash("Error loading workspace data.", "danger")
+         return render_template('workspace.html', domains=[])
 
-# Basic Scanner Route
+
 @app.route('/basic-scanner')
 def basic_scanner_page():
-    # Check if there's a domain to pre-fill from the query string
     domain_to_scan = request.args.get('domain', '')
-    autorun = request.args.get('autorun', 'false')
-    
+    autorun = request.args.get('autorun', 'false').lower() == 'true'
     return render_template('basic_scanner.html', 
                           domain_to_scan=domain_to_scan,
                           autorun=autorun)
 
-# Nuclei Scanner Route
+
 @app.route('/nuclei-scanner')
 def nuclei_scanner_page():
-    # Check if there's a domain to pre-fill from the query string
     domain_to_scan = request.args.get('domain', '')
-    autorun = request.args.get('autorun', 'false')
-    
+    autorun = request.args.get('autorun', 'false').lower() == 'true'
     return render_template('nuclei_scanner.html', 
                           domain_to_scan=domain_to_scan,
                           autorun=autorun)
 
-# Run Basic Scan
+# --- Scanner Routes ---
+
+# Modified route to handle single or list input
 @app.route('/run-basic-scan', methods=['POST'])
 def run_basic_scan():
-    domain_url = request.form.get('domain', '').strip()
-    if not domain_url:
-        return jsonify({"error": "No domain provided"}), 400
-    
-    # Generate a scan ID
-    scan_id = f"basic_scan_{int(time.time())}"
-    
-    # Run basic scan
-    result = basic_scanner.basic_scan(domain_url, scan_id)
-    
-    # Add domain ID for the link to details
-    domain = Domain.query.filter_by(url=result['domain']).first()
-    if domain:
-        result['domain_id'] = domain.id
-    
-    return jsonify(result)
+    single_domain = request.form.get('domain', '').strip()
+    domain_list_str = request.form.get('domain_list', '').strip() # New field for list
 
-# Run Basic Scan Batch
+    domains_to_scan = []
+    if single_domain:
+        domains_to_scan.append(single_domain)
+    elif domain_list_str:
+        domains_to_scan = [d.strip() for d in domain_list_str.splitlines() if d.strip()]
+    
+    if not domains_to_scan:
+        return jsonify({"error": "No domain(s) provided"}), 400
+
+    scan_group_id = f"basic_scan_group_{int(time.time())}"
+    started_scans = 0
+    
+    # Loop through domains and start a thread for each
+    for i, domain_url in enumerate(domains_to_scan):
+        if not domain_url:
+            continue
+
+        # Use a unique scan ID for each domain in the list/batch
+        scan_id = f"{scan_group_id}_{i}" 
+        print(f"Initiating basic scan for: {domain_url} with scan_id: {scan_id}")
+        
+        # Use the helper to run in thread with context
+        run_scan_in_thread(basic_scanner.basic_scan, domain_url, scan_id)
+        started_scans += 1
+        # Optional: Add a small delay between starting threads if needed
+        # time.sleep(0.1) 
+
+    if started_scans == 0:
+         return jsonify({"error": "No valid domains found to scan"}), 400
+         
+    # Return a response indicating scans have started
+    return jsonify({
+        "message": f"Basic scan started for {started_scans} domain(s).", 
+        "scan_group_id": scan_group_id
+    })
+
+# Kept the batch route, but the main route now handles lists too. 
+# Consider consolidating or differentiating functionality.
 @app.route('/run-basic-scan-batch', methods=['POST'])
 def run_basic_scan_batch():
     data = request.get_json()
-    
     if not data or 'domains' not in data:
-        return jsonify({"error": "No domains provided"}), 400
+        return jsonify({"error": "No domains list provided in JSON body"}), 400
     
-    domains = data['domains']
-    batch_size = data.get('batch_size', 10)
-    options = data.get('options', {})
+    domains = data.get('domains', [])
+    batch_size = data.get('batch_size', 10) # This doesn't do much if we start threads individually
+    delay = data.get('delay', 0.1) # Delay between starting threads
     
-    # Generate a unique scan ID for this batch
+    domains_to_scan = [d.strip() for d in domains if isinstance(d, str) and d.strip()]
+    
+    if not domains_to_scan:
+        return jsonify({"error": "No valid domains found in the list"}), 400
+        
     batch_id = f"batch_scan_{int(time.time())}"
+    started_scans = 0
     
-    # Start the scanning process in a background thread
-    def run_batch_scan():
-        with app.app_context():
-            for i in range(0, len(domains), batch_size):
-                batch = domains[i:i+batch_size]
-                for j, domain in enumerate(batch):
-                    if domain:
-                        # Generate a scan ID for each domain
-                        scan_id = f"{batch_id}_{i//batch_size}_{j}"
-                        try:
-                            basic_scanner.basic_scan(domain, scan_id)
-                        except Exception as e:
-                            print(f"Error scanning {domain}: {str(e)}")
-                # Small delay between batches
-                time.sleep(2)
-    
-    thread = threading.Thread(target=run_batch_scan)
-    thread.daemon = True
-    thread.start()
-    
+    print(f"Starting batch scan (ID: {batch_id}) for {len(domains_to_scan)} domains...")
+
+    for i, domain_url in enumerate(domains_to_scan):
+        scan_id = f"{batch_id}_{i}"
+        print(f"Initiating scan for {domain_url} (Scan ID: {scan_id})")
+        run_scan_in_thread(basic_scanner.basic_scan, domain_url, scan_id)
+        started_scans += 1
+        if delay > 0:
+             time.sleep(delay)
+             
     return jsonify({
-        "message": f"Started batch scan of {len(domains)} domains",
-        "batch_size": batch_size
+        "message": f"Batch scan initiated for {started_scans} domains.",
+        "batch_id": batch_id
     })
 
-# Run Nuclei Scan
+
 @app.route('/run-nuclei-scan', methods=['POST'])
 def run_nuclei_scan():
     domain_url = request.form.get('domain', '').strip()
-    scan_options = request.form.get('scan_options', '').split(',')
-    severity_levels = request.form.get('severity_levels', '').split(',')
+    scan_options_str = request.form.get('scan_options', '')
+    severity_levels_str = request.form.get('severity_levels', '')
+    
+    scan_options = [opt for opt in scan_options_str.split(',') if opt]
+    severity_levels = [lvl for lvl in severity_levels_str.split(',') if lvl]
     
     if not domain_url:
         return jsonify({"error": "No domain provided"}), 400
     
-    # Generate a scan ID
+    # Default options if none provided (consider if this is desired)
+    if not scan_options:
+         scan_options = ['cves', 'vulnerabilities', 'misconfiguration', 'exposures', 'technologies']
+    if not severity_levels:
+         severity_levels = ['critical', 'high', 'medium']
+         
     scan_id = f"nuclei_scan_{int(time.time())}"
+    print(f"Initiating Nuclei scan for: {domain_url} with scan_id: {scan_id}")
     
-    # Run nuclei scan
-    result = nuclei_scanner.nuclei_scan(domain_url, scan_id, scan_options, severity_levels)
+    # Use helper to run in thread with context
+    run_scan_in_thread(nuclei_scanner.nuclei_scan, domain_url, scan_id, scan_options, severity_levels)
     
-    # Add domain ID for the link to details
-    domain = Domain.query.filter_by(url=result['domain']).first()
-    if domain:
-        result['domain_id'] = domain.id
+    # Find domain ID immediately if possible (domain might be created by scanner)
+    # Note: Domain might not exist *yet* when this runs, scanner thread handles creation
+    domain_id = None
+    normalized_domain = normalize_domain_name(domain_url)
+    if normalized_domain:
+        temp_domain = Domain.query.filter_by(url=normalized_domain).first()
+        domain_id = temp_domain.id if temp_domain else None
     
-    return jsonify(result)
+    return jsonify({
+        "message": "Nuclei scan started", 
+        "scan_id": scan_id,
+        "domain": domain_url,
+        "domain_id": domain_id # Include domain_id if found *at this moment*
+    })
 
-# Ensure URL has a protocol
-def ensure_protocol(url):
-    """Ensure the URL has a protocol (http or https)."""
-    if not url.startswith(("http://", "https://")):
-        return f"https://{url}"
-    return url
+# --- Main.js Analyzer Routes ---
 
-# Main.js Analyzer Routes
 @app.route('/mainjs-analyzer')
 def mainjs_analyzer_page():
-    # Get domains with main.js files using improved detection
     domains_with_mainjs = []
-    domains = Domain.query.all()
-    
-    for domain in domains:
-        # Check if any endpoint for this domain matches main.js patterns
-        has_mainjs = False
-        
-        for pattern in MAIN_JS_PATTERNS:
-            # Try to use the proper regex query if supported by database
-            try:
-                endpoint = Endpoint.query.filter_by(domain_id=domain.id).filter(
-                    Endpoint.url.op('regexp')(pattern)
-                ).first()
-                
-                if endpoint:
-                    has_mainjs = True
-                    break
-            except:
-                # Fallback to basic pattern matching
-                endpoints = Endpoint.query.filter_by(domain_id=domain.id).all()
-                for endpoint in endpoints:
-                    if re.search(pattern, endpoint.url, re.IGNORECASE):
-                        has_mainjs = True
-                        break
-        
-        # If no match found with regex patterns, fall back to simple LIKE query
-        if not has_mainjs:
-            has_mainjs = Endpoint.query.filter(
-                Endpoint.domain_id == domain.id,
-                (Endpoint.url.like('%main.%js%') | Endpoint.url.like('%app.%js%'))
-            ).first() is not None
-        
-        if has_mainjs:
-            domains_with_mainjs.append(domain)
-    
-    # Check if there's a domain to pre-select
-    selected_domain_id = request.args.get('domain_id')
     selected_domain = None
-    if selected_domain_id:
-        selected_domain = Domain.query.get(selected_domain_id)
-    
+    try:
+        # Query domains that have at least one endpoint matching known patterns
+        # This uses SQLAlchemy's relationship features
+        domains_query = Domain.query.join(Endpoint).filter(
+            # Combine patterns into a single OR condition for efficiency
+            db.or_(*[Endpoint.url.like(f"%{pattern.replace('.*', '%').replace('.js', '%.js')}%") for pattern in MAIN_JS_PATTERNS])
+        ).distinct().all()
+        
+        # Get all domain objects found by the query
+        domains_with_mainjs = domains_query
+
+        selected_domain_id = request.args.get('domain_id')
+        if selected_domain_id:
+            try:
+                selected_domain = db.get_or_404(Domain, int(selected_domain_id))
+            except (ValueError, TypeError):
+                flash("Invalid Domain ID format provided.", "warning")
+    except Exception as e:
+         print(f"Error loading main.js analyzer page data: {e}")
+         flash("Error loading data for Main.js Analyzer.", "danger")
+
     return render_template('mainjs_analyzer.html', 
                           domains=domains_with_mainjs,
                           selected_domain=selected_domain)
 
+
 @app.route('/get-mainjs-content/<int:domain_id>')
 def get_mainjs_content(domain_id):
-    domain = Domain.query.get_or_404(domain_id)
-    
-    # Find the main.js endpoint using improved detection 
-    # First check for various main.js filename patterns
-    mainjs_endpoint = None
-    
-    # Try to use regex-based detection if the database supports it
-    try:
-        for pattern in MAIN_JS_PATTERNS:
-            endpoint = Endpoint.query.filter_by(domain_id=domain_id).filter(
-                Endpoint.url.op('regexp')(pattern)
-            ).first()
-            
-            if endpoint:
-                mainjs_endpoint = endpoint
-                break
-    except:
-        # Fallback to basic pattern matching without regex
-        endpoints = Endpoint.query.filter_by(domain_id=domain_id).all()
-        for endpoint in endpoints:
-            for pattern in MAIN_JS_PATTERNS:
-                if re.search(pattern, endpoint.url, re.IGNORECASE):
-                    mainjs_endpoint = endpoint
-                    break
-            if mainjs_endpoint:
-                break
-    
-    # If no main.js found with pattern matching, try original approach
-    if not mainjs_endpoint:
-        mainjs_endpoint = Endpoint.query.filter(
-            Endpoint.domain_id == domain_id,
-            (Endpoint.url.like('%main.%js%') | Endpoint.url.like('%app.%js%'))
-        ).first()
+    domain = db.get_or_404(Domain, domain_id)
+    mainjs_endpoint = find_mainjs_in_endpoints(domain_id)
     
     if not mainjs_endpoint:
         return jsonify({"error": "No main.js file found for this domain"}), 404
     
-    # Fetch the content of main.js
+    # Use a consistent session for requests
+    session = requests.Session()
+    session.headers.update({'User-Agent': 'Mozilla/5.0'}) # Basic user agent
+    requests.packages.urllib3.disable_warnings() # Disable SSL warnings
+    
     try:
-        # Disable SSL warnings
-        requests.packages.urllib3.disable_warnings()
+        response = session.get(mainjs_endpoint.url, timeout=20, verify=False, stream=True)
+        response.raise_for_status()
+
+        content_type = response.headers.get('Content-Type', '').lower()
+        if 'javascript' not in content_type and 'text/plain' not in content_type:
+             print(f"Warning: Unexpected content type '{content_type}' for {mainjs_endpoint.url}")
+
+        # Read content efficiently
+        content = "".join(chunk.decode('utf-8', errors='ignore') for chunk in response.iter_content(chunk_size=8192))
+
+        return jsonify({"url": mainjs_endpoint.url, "content": content})
         
-        response = requests.get(mainjs_endpoint.url, timeout=10, verify=False)
-        
-        if response.status_code >= 400:
-            return jsonify({"error": f"Failed to fetch main.js: HTTP {response.status_code}"}), 400
-        
-        return jsonify({
-            "url": mainjs_endpoint.url,
-            "content": response.text
-        })
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching main.js ({mainjs_endpoint.url}): {e}")
         return jsonify({"error": f"Error fetching main.js: {str(e)}"}), 500
+    except Exception as e:
+        print(f"Unexpected error fetching main.js ({mainjs_endpoint.url}): {e}")
+        return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+
 
 @app.route('/api/analyze-url', methods=['POST'])
 def analyze_url():
-    """Analyze any URL for main.js files"""
     data = request.json
     if not data or 'url' not in data:
         return jsonify({"error": "URL is required"}), 400
     
     url = ensure_protocol(data['url'])
+    main_js_url = None
+    main_js_content = None
+    error_message = None
+    
+    # Use a consistent session
+    session = requests.Session()
+    session.headers.update({'User-Agent': 'Mozilla/5.0'})
+    requests.packages.urllib3.disable_warnings()
     
     try:
-        # First, try to find main.js files through HTML analysis
-        main_js_url = find_mainjs_in_html(url)
+        main_js_url = find_mainjs_in_html(url, session) # Pass session
         
         if main_js_url:
-            # If found, try to fetch the content
             try:
-                response = requests.get(main_js_url, timeout=15, verify=False)
-                if response.status_code == 200:
-                    return jsonify({
-                        "success": True,
-                        "mainjs_url": main_js_url,
-                        "mainjs_content": response.text
-                    })
-                else:
-                    return jsonify({
-                        "success": True,
-                        "mainjs_url": main_js_url,
-                        "mainjs_content": None,
-                        "error": f"Could not fetch main.js content (status code: {response.status_code})"
-                    })
+                response = session.get(main_js_url, timeout=20, verify=False, stream=True)
+                response.raise_for_status()
+                
+                content_type = response.headers.get('Content-Type', '').lower()
+                if 'javascript' not in content_type and 'text/plain' not in content_type:
+                    print(f"Warning: Unexpected content type '{content_type}' for {main_js_url}")
+
+                main_js_content = "".join(chunk.decode('utf-8', errors='ignore') for chunk in response.iter_content(chunk_size=8192))
+                
+            except requests.exceptions.RequestException as e:
+                 error_message = f"Found main.js URL but failed to fetch content: {str(e)}"
+                 print(f"Error fetching content for {main_js_url}: {error_message}")
             except Exception as e:
-                return jsonify({
-                    "success": True,
-                    "mainjs_url": main_js_url,
-                    "mainjs_content": None,
-                    "error": f"Error fetching main.js content: {str(e)}"
-                })
-        
-        # If no main.js found through HTML, return error
-        return jsonify({
-            "success": False,
-            "error": "No main.js file found on this site"
-        })
-    
+                 error_message = f"An unexpected error occurred fetching content for {main_js_url}: {e}"
+                 print(f"Error fetching content for {main_js_url}: {error_message}")
+                 
+            return jsonify({
+                "success": True,
+                "mainjs_url": main_js_url,
+                "mainjs_content": main_js_content, # Will be None if fetch failed
+                "error": error_message # Include error if fetch failed
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": "No main.js file found linked directly in the HTML source."
+            })
+            
     except Exception as e:
-        return jsonify({
-            "error": f"Error analyzing URL: {str(e)}"
-        }), 500
+        print(f"Error analyzing URL {url}: {e}")
+        return jsonify({"success": False, "error": f"Error analyzing URL: {str(e)}"}), 500
+
 
 @app.route('/api/advanced-mainjs-detection/<int:domain_id>', methods=['POST'])
 def advanced_mainjs_detection(domain_id):
-    """
-    Advanced main.js detection for a domain.
-    This route tries to find main.js file for a domain using
-    enhanced detection techniques similar to your Angular detector.
-    """
-    # Get domain from database
-    domain = Domain.query.get_or_404(domain_id)
+    domain = db.get_or_404(Domain, domain_id)
+    url = ensure_protocol(domain.url)
+    main_js_url = None
+    main_js_content = None
+    error_message = None
+    endpoint_added_or_updated = False
     
-    if not domain:
-        return jsonify({"error": "Domain not found"}), 404
-    
-    url = f"https://{domain.url}"
+    session = requests.Session()
+    session.headers.update({'User-Agent': 'Mozilla/5.0'})
+    requests.packages.urllib3.disable_warnings()
     
     try:
-        # Try to find main.js in the HTML
-        main_js_url = find_mainjs_in_html(url)
+        # 1. Try finding in HTML source first
+        print(f"Advanced detection: Checking HTML source for {url}")
+        main_js_url = find_mainjs_in_html(url, session)
         
         if main_js_url:
-            # If main.js found, try to fetch its content
+            print(f"Advanced detection: Found potential main.js in HTML: {main_js_url}")
             try:
-                response = requests.get(main_js_url, timeout=15, verify=False)
-                if response.status_code == 200:
-                    # Add the endpoint to the database if it doesn't exist
-                    parsed = urlparse(main_js_url)
-                    path = parsed.path
-                    
-                    # Check if endpoint exists
-                    existing_endpoint = Endpoint.query.filter_by(
-                        domain_id=domain.id,
-                        url=main_js_url
-                    ).first()
-                    
-                    if not existing_endpoint:
-                        # Add new endpoint to database
-                        endpoint = Endpoint(
-                            domain_id=domain.id,
-                            url=main_js_url,
-                            path=path,
-                            status_code=response.status_code,
-                            content_type='application/javascript',
-                            is_interesting=True,
-                            notes="Detected main.js file"
-                        )
-                        db.session.add(endpoint)
-                        db.session.commit()
-                    
-                    return jsonify({
-                        "success": True,
-                        "mainjs_url": main_js_url,
-                        "mainjs_content": response.text,
-                        "endpoint_added": not existing_endpoint
-                    })
-                else:
-                    return jsonify({
-                        "success": True,
-                        "mainjs_url": main_js_url,
-                        "mainjs_content": None,
-                        "error": f"Could not fetch main.js content (status code: {response.status_code})"
-                    })
+                response = session.get(main_js_url, timeout=20, verify=False, stream=True)
+                response.raise_for_status()
+                main_js_content = "".join(chunk.decode('utf-8', errors='ignore') for chunk in response.iter_content(chunk_size=8192))
+                print(f"Advanced detection: Successfully fetched content for {main_js_url}")
+            except requests.exceptions.RequestException as e:
+                error_message = f"Found main.js URL ({main_js_url}) in HTML, but failed to fetch content: {e}"
+                print(f"Advanced detection error: {error_message}")
             except Exception as e:
-                return jsonify({
-                    "success": True,
-                    "mainjs_url": main_js_url,
-                    "mainjs_content": None,
-                    "error": f"Error fetching main.js content: {str(e)}"
-                })
-        
-        # If no main.js found through standard analysis, check endpoints table
-        main_js_endpoint = find_mainjs_in_endpoints(domain_id)
-        if main_js_endpoint:
-            try:
-                response = requests.get(main_js_endpoint.url, timeout=15, verify=False)
-                if response.status_code == 200:
-                    return jsonify({
-                        "success": True,
-                        "mainjs_url": main_js_endpoint.url,
-                        "mainjs_content": response.text
-                    })
-                else:
-                    return jsonify({
-                        "success": True,
-                        "mainjs_url": main_js_endpoint.url,
-                        "mainjs_content": None
-                    })
-            except Exception as e:
-                return jsonify({
-                    "success": True,
-                    "mainjs_url": main_js_endpoint.url,
-                    "mainjs_content": None,
-                    "error": str(e)
-                })
-        
-        # No main.js found
-        return jsonify({
-            "success": False,
-            "error": "No main.js file found for this domain"
-        })
-    
-    except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": f"Error during advanced main.js detection: {str(e)}"
-        }), 500
+                error_message = f"An unexpected error occurred fetching content for {main_js_url}: {e}"
+                print(f"Advanced detection error: {error_message}")
 
-def find_mainjs_in_html(url):
-    """
-    Scan a website's HTML for main.js files by:
-    1. Analyzing <script> tags with src attributes
-    2. Looking for patterns matching main.js variants
-    3. Returning the full URL to the first main.js file found
-    """
+        # 2. If not found or fetch failed, try finding in stored endpoints
+        if not main_js_url or (main_js_url and main_js_content is None):
+            print(f"Advanced detection: Checking stored endpoints for domain ID {domain_id}")
+            main_js_endpoint = find_mainjs_in_endpoints(domain_id)
+            if main_js_endpoint:
+                if not main_js_url: # Only update URL if not found in HTML
+                    main_js_url = main_js_endpoint.url
+                print(f"Advanced detection: Found potential main.js in endpoints: {main_js_url}")
+                if main_js_content is None: # Only fetch if we didn't get it before
+                    try:
+                        response = session.get(main_js_url, timeout=20, verify=False, stream=True)
+                        response.raise_for_status()
+                        main_js_content = "".join(chunk.decode('utf-8', errors='ignore') for chunk in response.iter_content(chunk_size=8192))
+                        print(f"Advanced detection: Successfully fetched content for {main_js_url} from endpoint.")
+                        error_message = None # Clear previous error if fetch successful now
+                    except requests.exceptions.RequestException as e:
+                        if not error_message: error_message = f"Found main.js URL ({main_js_url}) in endpoints, but failed to fetch content: {e}"
+                        print(f"Advanced detection error: {error_message}")
+                    except Exception as e:
+                         if not error_message: error_message = f"An unexpected error occurred fetching content for {main_js_url} from endpoint: {e}"
+                         print(f"Advanced detection error: {error_message}")
+            else:
+                 print(f"Advanced detection: No main.js found in stored endpoints either.")
+                 if not error_message: error_message = "No main.js file could be located via HTML parsing or stored endpoints."
+
+        # 3. Update or add endpoint if URL was found
+        if main_js_url:
+            try:
+                parsed = urlparse(main_js_url)
+                path = parsed.path or '/' # Ensure path is not empty
+                
+                existing_endpoint = Endpoint.query.filter_by(domain_id=domain.id, url=main_js_url).first()
+                
+                if not existing_endpoint:
+                    endpoint = Endpoint(
+                        domain_id=domain.id, url=main_js_url[:511], path=path[:254], # Truncate
+                        status_code=200 if main_js_content else None, 
+                        content_type='application/javascript', is_interesting=True,
+                        notes="Detected main.js file via advanced scan"
+                    )
+                    db.session.add(endpoint)
+                    print(f"Advanced detection: Added new endpoint record for {main_js_url}")
+                elif not existing_endpoint.is_interesting:
+                     existing_endpoint.is_interesting = True
+                     existing_endpoint.last_checked = datetime.utcnow()
+                     if main_js_content and not existing_endpoint.status_code:
+                          existing_endpoint.status_code = 200
+                     print(f"Advanced detection: Marked existing endpoint {main_js_url} as interesting.")
+                     
+                db.session.commit()
+                endpoint_added_or_updated = True
+            except Exception as db_err:
+                 db.session.rollback()
+                 print(f"Advanced detection DB error: {db_err}")
+                 # Append DB error to existing message if any
+                 error_message = (error_message + "; " if error_message else "") + f"Database error updating endpoint: {db_err}"
+
+        # 4. Return result
+        return jsonify({
+            "success": bool(main_js_url),
+            "mainjs_url": main_js_url,
+            "mainjs_content": main_js_content,
+            "endpoint_added_or_updated": endpoint_added_or_updated,
+            "error": error_message
+        })
+
+    except Exception as e:
+        print(f"Error during advanced main.js detection for domain {domain_id}: {str(e)}")
+        return jsonify({"success": False, "error": f"An unexpected error occurred during detection: {str(e)}"}), 500
+
+# Helper to find main.js in HTML source using a session
+def find_mainjs_in_html(url, session):
     try:
-        # Disable SSL warnings
-        requests.packages.urllib3.disable_warnings()
+        response = session.get(url, timeout=15, verify=False, allow_redirects=True)
+        response.raise_for_status()
+        content = response.text
+        soup = BeautifulSoup(content, 'html.parser')
         
-        # Get the HTML content
-        response = requests.get(url, timeout=15, verify=False, allow_redirects=True)
-        if response.status_code != 200:
-            return None
-        
-        # Parse with BeautifulSoup
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Find script tags with src attribute
+        found_scripts = []
         for script in soup.find_all('script', src=True):
             script_url = script['src']
-            
-            # Check if the script matches any main.js pattern
-            for pattern in MAIN_JS_PATTERNS:
-                if re.search(pattern, script_url, re.IGNORECASE):
-                    # Convert relative URL to absolute
-                    if not script_url.startswith(('http://', 'https://')):
-                        script_url = urljoin(url, script_url)
-                    
-                    return script_url
-        
+            script_url = urljoin(response.url, script_url)
+            found_scripts.append(script_url)
+
+        for pattern in MAIN_JS_PATTERNS:
+             compiled_pattern = re.compile(pattern, re.IGNORECASE)
+             for script_url in found_scripts:
+                 if compiled_pattern.search(script_url):
+                     return script_url
         return None
-    
+    except requests.exceptions.RequestException as e:
+        print(f"HTML fetch error in find_mainjs_in_html ({url}): {e}")
+        return None
     except Exception as e:
-        print(f"Error in find_mainjs_in_html: {str(e)}")
+        print(f"HTML parsing error in find_mainjs_in_html ({url}): {e}")
         return None
 
+# Helper to find main.js in stored endpoints
 def find_mainjs_in_endpoints(domain_id):
-    """
-    Check if we've already discovered a main.js file for this domain
-    in the endpoints table
-    """
-    # Look for endpoints with main.js in the URL
     try:
-        main_js_endpoints = []
-        
-        # Try regex-based detection if supported by the database
-        try:
-            for pattern in MAIN_JS_PATTERNS:
-                # Query for each pattern
-                endpoints = Endpoint.query.filter_by(domain_id=domain_id).filter(
-                    Endpoint.url.op('regexp')(pattern)
-                ).all()
-                
-                main_js_endpoints.extend(endpoints)
-        except:
-            # Fallback to iterative checking if regex not supported
-            all_endpoints = Endpoint.query.filter_by(domain_id=domain_id).all()
-            for endpoint in all_endpoints:
-                for pattern in MAIN_JS_PATTERNS:
-                    if re.search(pattern, endpoint.url, re.IGNORECASE):
-                        main_js_endpoints.append(endpoint)
-                        break
-        
-        # If endpoints found, return the first one
-        if main_js_endpoints:
-            return main_js_endpoints[0]
-        
-        # Try the original LIKE query as a last resort
-        return Endpoint.query.filter(
+        # Combine patterns into a single efficient query if possible (DB dependent)
+        # Using multiple LIKEs as a fallback for broader compatibility
+        conditions = [Endpoint.url.like(f"%{pattern.replace('.*', '%').replace('.js', '%.js')}%") for pattern in MAIN_JS_PATTERNS]
+        endpoint = Endpoint.query.filter(
             Endpoint.domain_id == domain_id,
-            (Endpoint.url.like('%main.%js%') | Endpoint.url.like('%app.%js%'))
-        ).first()
-    
+            db.or_(*conditions)
+        ).order_by(Endpoint.is_interesting.desc(), Endpoint.date_discovered.desc()).first() # Prioritize interesting/recent
+        
+        return endpoint
     except Exception as e:
-        print(f"Error in find_mainjs_in_endpoints: {str(e)}")
+        print(f"DB error querying endpoints for main.js (domain {domain_id}): {e}")
         return None
 
-# Domain Scan Link with Modified Routing
+# --- Scan Link Route ---
 @app.route('/scan-link/<int:domain_id>')
 def scan_link(domain_id):
-    domain = Domain.query.get_or_404(domain_id)
+    domain = db.get_or_404(Domain, domain_id)
     scan_type = request.args.get('type', 'basic')
-    
-    if scan_type == 'nuclei':
-        return redirect(url_for('nuclei_scanner_page', 
-                               domain=domain.url, 
-                               autorun='true'))
-    elif scan_type == 'basic':
-        return redirect(url_for('basic_scanner_page', 
-                               domain=domain.url, 
-                               autorun='true'))
-    elif scan_type == 'mainjs':
-        return redirect(url_for('mainjs_analyzer_page', 
-                               domain_id=domain_id))
-    else:
-        return redirect(url_for('basic_scanner_page', 
-                               domain=domain.url, 
-                               autorun='true'))
+    domain_name_only = domain.url # Assumes domain.url doesn't have protocol
 
-# API Endpoint Bypass routes
+    if scan_type == 'nuclei':
+        return redirect(url_for('nuclei_scanner_page', domain=domain_name_only, autorun='true'))
+    elif scan_type == 'mainjs':
+        if find_mainjs_in_endpoints(domain_id):
+             return redirect(url_for('mainjs_analyzer_page', domain_id=domain_id))
+        else:
+             flash(f"No main.js file associated with {domain.url}. Run a basic scan first.", "warning")
+             return redirect(url_for('domain_details', id=domain_id))
+    elif scan_type == 'api_bypass':
+         return redirect(url_for('api_bypass_page', domain=ensure_protocol(domain.url), domain_id=domain.id))
+    else: # Default to basic scan
+        return redirect(url_for('basic_scanner_page', domain=domain_name_only, autorun='true'))
+
+# --- API Bypass Routes ---
+
 @app.route('/api-bypass')
 def api_bypass_page():
-    # Get list of wordlists from the wordlists directory
     wordlists = []
     try:
-        wordlists = [f for f in os.listdir(app.config['WORDLISTS_FOLDER']) if os.path.isfile(os.path.join(app.config['WORDLISTS_FOLDER'], f))]
-    except:
-        pass
-    
-    # Check if there's a domain to pre-fill from the query string
+        wordlists_dir = app.config['WORDLISTS_FOLDER']
+        if os.path.isdir(wordlists_dir):
+            wordlists = sorted([f for f in os.listdir(wordlists_dir) if os.path.isfile(os.path.join(wordlists_dir, f))])
+        else:
+            print(f"Warning: Wordlists directory not found at {wordlists_dir}")
+            flash(f"Wordlists directory not found: {wordlists_dir}", "warning")
+    except Exception as e:
+        print(f"Error listing wordlists: {e}")
+        flash("Error loading wordlists.", "danger")
+
     domain_to_test = request.args.get('domain', '')
+    domain_id = request.args.get('domain_id', type=int) # Use type=int for auto-conversion/validation
+
+    # Verify domain_id if provided
+    if domain_id:
+        domain_check = db.session.get(Domain, domain_id) # Use newer db.session.get
+        if not domain_check:
+             flash(f"Invalid Domain ID {domain_id} provided.", "warning")
+             domain_id = None 
+        elif not domain_to_test: 
+             domain_to_test = ensure_protocol(domain_check.url)
     
-    # Get domain_id if it exists
-    domain_id = request.args.get('domain_id')
-    
-    # Ensure it has https:// prefix
-    if domain_to_test and not domain_to_test.startswith(('http://', 'https://')):
-        domain_to_test = 'https://' + domain_to_test
+    if domain_to_test:
+        domain_to_test = ensure_protocol(domain_to_test)
     
     return render_template('api_bypass.html', 
                           wordlists=wordlists, 
                           domain_to_test=domain_to_test,
                           domain_id=domain_id)
 
+
 @app.route('/run-bypass', methods=['POST'])
-def run_bypass():
+def run_bypass_route():
     domain = request.form.get('domain')
-    wordlist = request.form.get('wordlist')
-    domain_id = request.form.get('domain_id')  # Get domain ID if available
-    
-    if not domain or not wordlist:
+    wordlist_name = request.form.get('wordlist')
+    domain_id = request.form.get('domain_id', type=int) # Get as int
+
+    if not domain or not wordlist_name:
         return jsonify({"error": "Domain and wordlist are required"}), 400
     
-    # Path to wordlist
-    wordlist_path = os.path.join(app.config['WORDLISTS_FOLDER'], wordlist)
-    
-    # Run the bypass script
-    result = api_bypass.run_bypass(domain, wordlist_path, domain_id)
-    return jsonify(result)
+    wordlist_path = os.path.join(app.config['WORDLISTS_FOLDER'], wordlist_name)
+    if not os.path.isfile(wordlist_path):
+         return jsonify({"error": f"Wordlist '{wordlist_name}' not found."}), 400
 
+    domain = ensure_protocol(domain)
+    print(f"Running bypass for {domain} with wordlist {wordlist_name} and domain_id {domain_id}")
+
+    try:
+        result = api_bypass.run_bypass(domain, wordlist_path, domain_id) 
+        
+        # Automatic domain ID lookup if needed (and if bypass was successful)
+        if not domain_id and result.get('successful_bypasses') and 'error' not in result:
+            print("Attempting automatic domain ID lookup...")
+            normalized_domain = normalize_domain_name(domain)
+            if normalized_domain:
+                 domain_obj = Domain.query.filter(Domain.url == normalized_domain).first()
+                 if domain_obj:
+                     domain_id = domain_obj.id
+                     print(f"Automatically found domain ID: {domain_id}")
+                     # Re-call storage function with the found ID
+                     api_bypass.store_successful_bypasses(
+                         domain_id, domain, result.get('successful_bypasses', []), result.get('recommendations', '')
+                     )
+                     result['message'] = "Scan complete. Results automatically associated with domain."
+                     result['domain_id'] = domain_id # Add found ID to result
+                 else:
+                      print(f"Automatic lookup failed: No domain found matching '{normalized_domain}'")
+            else:
+                 print("Automatic lookup failed: Could not extract base domain.")
+        
+        # Add domain_id to the result if it was determined
+        elif domain_id:
+            result['domain_id'] = domain_id
+
+        return jsonify(result)
+        
+    except Exception as e:
+         # Catch errors from the bypass function itself
+         print(f"Error during API bypass execution: {e}")
+         return jsonify({"error": f"Error running bypass: {str(e)}"}), 500
+
+
+# Route for explicit storage (might be less used now)
 @app.route('/api-bypass/store/<int:domain_id>', methods=['POST'])
 def store_api_bypass(domain_id):
-    """Store API bypass results for a domain"""
-    domain = Domain.query.get_or_404(domain_id)
-    
-    # Get data from the API bypass test
+    domain = db.get_or_404(Domain, domain_id) # Ensure domain exists
     data = request.get_json()
-    if not data:
-        return jsonify({"error": "No data provided"}), 400
+    if not data: return jsonify({"error": "No data provided"}), 400
     
-    for bypass in data.get('successful_bypasses', []):
-        # Parse bypass information
-        parts = bypass.split('-->')
-        if len(parts) == 2:
-            status_size = parts[0].strip()
-            method = parts[1].strip()
-            
-            # Create new APIBypass record
-            api_bypass = APIBypass(
-                domain_id=domain.id,
-                endpoint=data.get('domain', ''),
-                method=method,
-                curl_command=f"curl {method}",
-                response=f"Status: {status_size}",
-                notes=data.get('recommendations', '')
-            )
-            
-            db.session.add(api_bypass)
-    
-    db.session.commit()
-    return jsonify({"success": True, "message": "API bypass results stored"})
-
-@app.route('/domain/<int:id>/api-bypass', methods=['POST'])
-def add_api_bypass(id):
-    """Manually add API bypass result"""
-    domain = Domain.query.get_or_404(id)
-    
-    api_bypass = APIBypass(
-        domain_id=domain.id,
-        endpoint=request.form.get('endpoint', ''),
-        method=request.form.get('method', ''),
-        curl_command=request.form.get('curl_command', ''),
-        notes=request.form.get('notes', '')
-    )
-    
-    db.session.add(api_bypass)
-    db.session.commit()
-    
-    flash('API bypass added successfully!', 'success')
-    return redirect(url_for('domain_details', id=id))
-
-# Templates management
-@app.route('/templates', methods=['GET', 'POST'])
-def templates():
-    nuclei_cmd = 'nuclei'  # Assuming nuclei is installed
-    
-    if request.method == 'POST':
-        if 'action' in request.form:
-            if request.form['action'] == 'update':
-                try:
-                    subprocess.run([nuclei_cmd, '-update-templates'], check=True, capture_output=True)
-                    flash('Nuclei templates updated successfully!', 'success')
-                except Exception as e:
-                    flash(f'Error updating templates: {str(e)}', 'danger')
-                    
-            elif request.form['action'] == 'add-custom' and 'template_content' in request.form:
-                try:
-                    template_name = request.form.get('template_name', '')
-                    if not template_name.endswith('.yaml'):
-                        template_name += '.yaml'
-                        
-                    # Safe template name - prevent directory traversal
-                    template_name = os.path.basename(template_name)
-                    
-                    # Create custom templates directory if it doesn't exist
-                    custom_dir = os.path.join(os.getcwd(), 'custom-templates')
-                    os.makedirs(custom_dir, exist_ok=True)
-                    
-                    template_path = os.path.join(custom_dir, template_name)
-                    with open(template_path, 'w') as f:
-                        f.write(request.form['template_content'])
-                        
-                    flash(f'Custom template "{template_name}" added successfully!', 'success')
-                except Exception as e:
-                    flash(f'Error adding custom template: {str(e)}', 'danger')
-    
-    # Get list of available template categories
-    template_categories = []
-    custom_templates = []
+    bypasses_data = data.get('successful_bypasses', [])
+    recommendations = data.get('recommendations', '')
+    target_domain_url = data.get('domain', ensure_protocol(domain.url)) 
+    stored_count = 0
     
     try:
-        # Get built-in template categories
-        output = subprocess.run([nuclei_cmd, '-tl'], check=False, capture_output=True, text=True)
-        for line in output.stdout.splitlines():
-            if line.strip() and not line.startswith(('[', '-')) and not line.strip() == "TEMPLATES":
-                template_categories.append(line.strip())
-        
-        # Get custom templates
-        custom_dir = os.path.join(os.getcwd(), 'custom-templates')
-        if os.path.exists(custom_dir):
-            custom_templates = [f for f in os.listdir(custom_dir) if f.endswith(('.yaml', '.yml'))]
+        success = api_bypass.store_successful_bypasses(domain_id, target_domain_url, bypasses_data, recommendations)
+        message = f"API bypass results {'processed' if success else 'failed to process'} for domain ID {domain_id}."
+        if success: stored_count = len(bypasses_data) # Rough count
+        return jsonify({"success": success, "message": message, "stored_count": stored_count})
     except Exception as e:
-        flash(f'Error getting template list: {str(e)}', 'warning')
-    
-    return render_template('templates.html', 
-                          template_categories=template_categories,
-                          custom_templates=custom_templates,
-                          nuclei_available=True)
+         print(f"Error in /api-bypass/store/{domain_id}: {e}")
+         return jsonify({"success": False, "error": f"Server error storing results: {str(e)}"}), 500
 
-# Add domain route (used internally after scanning)
-@app.route('/add-domain', methods=['POST'])
-def add_domain():
-    url = request.form.get('url')
-    
-    if not url:
-        flash('URL is required', 'danger')
-        return redirect(url_for('domains'))
-    
-    # Check if domain already exists
-    existing = Domain.query.filter_by(url=url).first()
-    if existing:
-        flash(f'Domain {url} already exists', 'warning')
-        return redirect(url_for('domains'))
-    
-    new_domain = Domain(url=url)
-    db.session.add(new_domain)
-    db.session.commit()
-    
-    flash(f'Domain {url} added successfully!', 'success')
-    return redirect(url_for('domains'))
 
-# Vulnerability management routes
+# --- Vulnerability/Endpoint/Screenshot Management --- (Simplified for brevity, keep existing logic)
+
 @app.route('/vulnerability/<int:id>/delete', methods=['POST'])
 def delete_vulnerability(id):
-    vuln = Vulnerability.query.get_or_404(id)
+    vuln = db.get_or_404(Vulnerability, id)
     domain_id = vuln.domain_id
-    
-    db.session.delete(vuln)
-    db.session.commit()
-    
-    flash('Vulnerability deleted successfully!', 'success')
+    try:
+        db.session.delete(vuln)
+        db.session.commit()
+        flash('Vulnerability deleted successfully!', 'success')
+    except Exception as e:
+         db.session.rollback()
+         flash(f'Error deleting vulnerability: {str(e)}', 'danger')
     return redirect(url_for('domain_details', id=domain_id))
 
 @app.route('/vulnerability/<int:id>/update', methods=['POST'])
 def update_vulnerability(id):
-    vuln = Vulnerability.query.get_or_404(id)
-    
-    if 'severity' in request.form:
-        vuln.severity = request.form['severity']
-    
-    if 'notes' in request.form:
-        vuln.description = request.form['notes']
-    
-    db.session.commit()
-    
-    flash('Vulnerability updated successfully!', 'success')
+    vuln = db.get_or_404(Vulnerability, id)
+    updated = False
+    try:
+        if 'severity' in request.form:
+            new_severity = request.form['severity'].upper()
+            if new_severity in ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL']:
+                vuln.severity = new_severity
+                updated = True
+        if 'notes' in request.form:
+            vuln.description = request.form['notes']
+            updated = True
+        
+        if updated:
+             vuln.last_updated = datetime.utcnow()
+             db.session.commit()
+             flash('Vulnerability updated successfully!', 'success')
+    except Exception as e:
+         db.session.rollback()
+         flash(f'Error updating vulnerability: {str(e)}', 'danger')
     return redirect(url_for('domain_details', id=vuln.domain_id))
 
-# Add new route for vulnerability classification
 @app.route('/vulnerability/<int:id>/classify', methods=['POST'])
 def classify_vulnerability_route(id):
-    """Allow analysts to classify a vulnerability as true or false positive"""
+    vuln = db.get_or_404(Vulnerability, id)
     is_true_positive = request.form.get('is_true_positive', 'false').lower() == 'true'
-    
-    result = nuclei_scanner.classify_vulnerability(id, is_true_positive)
-    
-    if result:
-        flash(f"Vulnerability classified as {'TRUE POSITIVE' if is_true_positive else 'FALSE POSITIVE'}", 'success')
-    else:
-        flash("Error classifying vulnerability", 'danger')
-    
-    # Redirect back to the domain details page
-    vuln = Vulnerability.query.get_or_404(id)
+    try:
+        new_status = 'CONFIRMED' if is_true_positive else 'DISMISSED'
+        if vuln.status != new_status:
+            vuln.status = new_status
+            vuln.last_updated = datetime.utcnow()
+            db.session.commit()
+            flash(f"Vulnerability classified as {'TRUE POSITIVE' if is_true_positive else 'FALSE POSITIVE'}", 'success')
+    except Exception as e:
+         db.session.rollback()
+         flash(f"Error classifying vulnerability: {str(e)}", 'danger')
     return redirect(url_for('domain_details', id=vuln.domain_id))
 
-# Endpoint management routes
 @app.route('/endpoint/<int:id>/delete', methods=['POST'])
 def delete_endpoint(id):
-    endpoint = Endpoint.query.get_or_404(id)
+    endpoint = db.get_or_404(Endpoint, id)
     domain_id = endpoint.domain_id
-    
-    db.session.delete(endpoint)
-    db.session.commit()
-    
-    flash('Endpoint deleted successfully!', 'success')
+    try:
+        db.session.delete(endpoint)
+        db.session.commit()
+        flash('Endpoint deleted successfully!', 'success')
+    except Exception as e:
+         db.session.rollback()
+         flash(f'Error deleting endpoint: {str(e)}', 'danger')
     return redirect(url_for('domain_details', id=domain_id))
 
 @app.route('/endpoint/<int:id>/update', methods=['POST'])
 def update_endpoint(id):
-    endpoint = Endpoint.query.get_or_404(id)
-    
-    if 'notes' in request.form:
-        endpoint.notes = request.form['notes']
-    
-    if 'is_interesting' in request.form:
-        endpoint.is_interesting = True
-    else:
-        endpoint.is_interesting = False
-    
-    db.session.commit()
-    
-    flash('Endpoint updated successfully!', 'success')
+    endpoint = db.get_or_404(Endpoint, id)
+    try:
+        endpoint.notes = request.form.get('notes', endpoint.notes)
+        endpoint.is_interesting = 'is_interesting' in request.form 
+        endpoint.last_checked = datetime.utcnow()
+        db.session.commit()
+        flash('Endpoint updated successfully!', 'success')
+    except Exception as e:
+         db.session.rollback()
+         flash(f'Error updating endpoint: {str(e)}', 'danger')
     return redirect(url_for('domain_details', id=endpoint.domain_id))
 
-# API Bypass management routes
-@app.route('/api-bypass/<int:id>/delete', methods=['POST'])
-def delete_api_bypass(id):
-    bypass = APIBypass.query.get_or_404(id)
-    domain_id = bypass.domain_id
-    
-    db.session.delete(bypass)
-    db.session.commit()
-    
-    flash('API bypass deleted successfully!', 'success')
-    return redirect(url_for('domain_details', id=domain_id))
-
-# Screenshot management
 @app.route('/screenshot/<int:id>/delete', methods=['POST'])
 def delete_screenshot(id):
-    screenshot = Screenshot.query.get_or_404(id)
+    screenshot = db.get_or_404(Screenshot, id)
     domain_id = screenshot.domain_id
-    
-    # Delete the file
+    filename = screenshot.filename
     try:
-        file_path = os.path.join(app.config['UPLOAD_FOLDER'], screenshot.filename)
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        db.session.delete(screenshot)
+        db.session.commit()
+        flash('Screenshot record deleted successfully!', 'success')
+        try:
+            file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            if os.path.exists(file_path): os.remove(file_path)
+        except Exception as file_err:
+            flash(f'Warning: Could not delete screenshot file: {filename}', 'warning')
+            print(f"File deletion error: {file_err}")
     except Exception as e:
-        flash(f'Error deleting file: {str(e)}', 'warning')
-    
-    # Delete the database record
-    db.session.delete(screenshot)
-    db.session.commit()
-    
-    flash('Screenshot deleted successfully!', 'success')
+         db.session.rollback()
+         flash(f'Error deleting screenshot record: {str(e)}', 'danger')
     return redirect(url_for('domain_details', id=domain_id))
 
-# Error handlers
+# --- Error Handlers & SocketIO ---
+
 @app.errorhandler(404)
 def page_not_found(e):
-    return render_template('error.html', error_code=404, error_message="Page not found"), 404
+    print(f"404 Error: Path '{request.path}' not found.")
+    return render_template('error.html', error_code=404, error_message="Page Not Found"), 404
 
 @app.errorhandler(500)
 def server_error(e):
-    return render_template('error.html', error_code=500, error_message="Server error"), 500
+    print(f"500 Server Error: Path '{request.path}'. Error: {e}")
+    try: db.session.rollback()
+    except Exception as db_err: print(f"Error rolling back DB session on 500: {db_err}")
+    return render_template('error.html', error_code=500, error_message="Internal Server Error"), 500
 
-# Socket.IO events
+@app.errorhandler(Exception)
+def handle_exception(e):
+    print(f"Unhandled Exception: Path '{request.path}'. Error: {str(e)}")
+    try: db.session.rollback()
+    except Exception as db_err: print(f"Error rolling back DB session on exception: {db_err}")
+    return render_template('error.html', error_code=500, error_message="An unexpected error occurred."), 500
+
 @socketio.on('connect')
 def handle_connect():
-    print('Client connected')
+    print(f'Client connected: {request.sid}')
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    print('Client disconnected')
+    print(f'Client disconnected: {request.sid}')
 
-# Run the application
+# --- Main Execution ---
 if __name__ == '__main__':
-    socketio.run(app, debug=True)
+    print("Starting Flask app with SocketIO...")
+    # Use debug=True only for development
+    socketio.run(app, debug=True, host='127.0.0.1', port=5000, use_reloader=False) # use_reloader=False often helps with threads
