@@ -15,6 +15,7 @@ from werkzeug.utils import secure_filename
 from bs4 import BeautifulSoup
 from config import Config
 from models import db, Domain, Technology, Vulnerability, Endpoint, Screenshot, APIBypass
+from sqlalchemy import and_, func, distinct
 
 # Import scanner utilities
 import utils.basic_scanner as basic_scanner
@@ -88,11 +89,27 @@ def run_scan_in_thread(target_function, *args):
     thread.start()
     return thread
 
+def find_mainjs_in_endpoints(domain_id):
+    """Helper function to find a main.js file in domain endpoints"""
+    # Look for endpoints that might be main.js files
+    patterns = [
+        '%main%.js%',  # matches main.js, main-123.js, main.min.js, etc.
+        '%app%.js%',   # matches app.js, app-bundle.js, etc.
+        '%bundle%.js%' # matches bundle.js, main-bundle.js, etc.
+    ]
+    
+    for pattern in patterns:
+        endpoint = Endpoint.query.filter(
+            Endpoint.domain_id == domain_id,
+            Endpoint.url.like(pattern)
+        ).first()
+        
+        if endpoint:
+            return endpoint
+    
+    return None
 
 # --- Routes ---
-
-# (Keep dashboard, domains, domain_details, update_domain, delete_domain, upload_screenshot, workspace, scanner pages, scanner execution routes, vulnerability/endpoint/screenshot management routes, error handlers as they were)
-# ... (Previous routes from app.py) ...
 
 @app.route('/')
 def dashboard():
@@ -108,6 +125,32 @@ def dashboard():
         for vuln in vulnerabilities:
             if vuln.severity in severity_counts:
                 severity_counts[vuln.severity] += 1
+
+        # Get domains by HTTP status code ranges for dashboard chart
+        domains_by_http_status = {
+            '200-299': db.session.query(func.count(distinct(Domain.id)))
+                          .join(Endpoint)
+                          .filter(and_(Endpoint.status_code >= 200, Endpoint.status_code < 300))
+                          .scalar() or 0,
+            '300-399': db.session.query(func.count(distinct(Domain.id)))
+                          .join(Endpoint)
+                          .filter(and_(Endpoint.status_code >= 300, Endpoint.status_code < 400))
+                          .scalar() or 0,
+            '400-499': db.session.query(func.count(distinct(Domain.id)))
+                          .join(Endpoint)
+                          .filter(and_(Endpoint.status_code >= 400, Endpoint.status_code < 500))
+                          .scalar() or 0,
+            '500-599': db.session.query(func.count(distinct(Domain.id)))
+                          .join(Endpoint)
+                          .filter(and_(Endpoint.status_code >= 500, Endpoint.status_code < 600))
+                          .scalar() or 0
+        }
+
+        # Count Angular sites
+        angular_sites = db.session.query(func.count(distinct(Domain.id)))\
+                          .join(Domain.technologies)\
+                          .filter(Technology.name.like('%Angular%'))\
+                          .scalar() or 0
 
         domains_by_status = {
             'NEW': Domain.query.filter_by(assessment_status='NEW').count(),
@@ -125,6 +168,8 @@ def dashboard():
                               total_vulnerabilities=total_vulnerabilities,
                               severity_counts=severity_counts,
                               domains_by_status=domains_by_status,
+                              domains_by_http_status=domains_by_http_status,
+                              angular_sites=angular_sites,
                               recent_vulnerabilities=recent_vulnerabilities)
     except Exception as e:
         print(f"Error loading dashboard: {e}")
@@ -133,6 +178,8 @@ def dashboard():
                               total_domains=0, active_domains=0, inactive_domains=0, total_vulnerabilities=0,
                               severity_counts={'CRITICAL': 0, 'HIGH': 0, 'MEDIUM': 0, 'LOW': 0},
                               domains_by_status={'NEW': 0, 'IN PROGRESS': 0, 'FINISHED': 0, 'FALSE ALARM': 0},
+                              domains_by_http_status={'200-299': 0, '300-399': 0, '400-499': 0, '500-599': 0},
+                              angular_sites=0,
                               recent_vulnerabilities=[])
 
 @app.route('/domains')
@@ -143,6 +190,8 @@ def domains():
         tech_filter = request.args.get('technology')
         status_filter = request.args.get('status')
         assessment_filter = request.args.get('assessment')
+        http_status_filter = request.args.get('http_status')  # HTTP status filter
+        vuln_severity_filter = request.args.get('vulnerability_severity')  # Vulnerability severity filter
 
         if tech_filter:
             query = query.join(Domain.technologies).filter(Technology.name == tech_filter)
@@ -150,6 +199,36 @@ def domains():
             query = query.filter(Domain.status == status_filter)
         if assessment_filter:
             query = query.filter(Domain.assessment_status == assessment_filter)
+            
+        # Add HTTP status code range filter
+        if http_status_filter:
+            # Parse the status code range
+            if http_status_filter == '200-299':
+                status_min, status_max = 200, 299
+            elif http_status_filter == '300-399':
+                status_min, status_max = 300, 399
+            elif http_status_filter == '400-499':
+                status_min, status_max = 400, 499
+            elif http_status_filter == '500-599':
+                status_min, status_max = 500, 599
+            else:
+                status_min, status_max = None, None
+                
+            if status_min is not None and status_max is not None:
+                # Find domains with endpoints in the specified status code range
+                domain_ids = db.session.query(Endpoint.domain_id)\
+                                    .filter(and_(Endpoint.status_code >= status_min, 
+                                                Endpoint.status_code <= status_max))\
+                                    .distinct().subquery()
+                                    
+                query = query.filter(Domain.id.in_(domain_ids))
+                
+        # Add vulnerability severity filter
+        if vuln_severity_filter:
+            vuln_domain_ids = db.session.query(Vulnerability.domain_id)\
+                                    .filter(Vulnerability.severity == vuln_severity_filter)\
+                                    .distinct().subquery()
+            query = query.filter(Domain.id.in_(vuln_domain_ids))
 
         domains = query.order_by(Domain.last_scanned.desc()).all()
         technologies = Technology.query.order_by(Technology.name).all()

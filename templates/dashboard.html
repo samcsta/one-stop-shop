@@ -12,46 +12,81 @@
 
 <div class="row">
     <div class="col-md-3">
-        <div class="card mb-4">
-            <div class="stat-card bg-primary">
-                <div class="stat-value">{{ total_domains }}</div>
-                <div class="stat-title">Total Domains</div>
-                <div class="stat-icon">
-                    <i class="fas fa-globe"></i>
+        <a href="{{ url_for('domains') }}" class="text-decoration-none">
+            <div class="card mb-4">
+                <div class="stat-card bg-primary">
+                    <div class="stat-value">{{ total_domains }}</div>
+                    <div class="stat-title">Total Domains</div>
+                    <div class="stat-icon">
+                        <i class="fas fa-globe"></i>
+                    </div>
                 </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="{{ url_for('domains', status='ACTIVE') }}" class="text-decoration-none">
+            <div class="card mb-4">
+                <div class="stat-card bg-success">
+                    <div class="stat-value">{{ active_domains }}</div>
+                    <div class="stat-title">Active Domains</div>
+                    <div class="stat-icon">
+                        <i class="fas fa-check-circle"></i>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="{{ url_for('domains', status='INACTIVE') }}" class="text-decoration-none">
+            <div class="card mb-4">
+                <!-- Dark grey background for inactive domains -->
+                <div class="stat-card" style="background-color:#6c757d;">
+                    <div class="stat-value">{{ inactive_domains }}</div>
+                    <div class="stat-title">Inactive Domains</div>
+                    <div class="stat-icon">
+                        <i class="fas fa-times-circle"></i>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+    <div class="col-md-3">
+        <a href="{{ url_for('domains', technology='Angular') }}" class="text-decoration-none">
+            <div class="card mb-4">
+                <!-- Orange background for Angular sites -->
+                <div class="stat-card" style="background-color:#ffbc42;">
+                    <div class="stat-value">{{ angular_sites }}</div>
+                    <div class="stat-title">Angular Sites</div>
+                    <div class="stat-icon">
+                        <i class="fas fa-code"></i>
+                    </div>
+                </div>
+            </div>
+        </a>
+    </div>
+</div>
+
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Domains by HTTP Status Code</h5>
+                <i class="fas fa-chart-bar text-primary"></i>
+            </div>
+            <div class="card-body">
+                <canvas id="httpStatusChart"></canvas>
             </div>
         </div>
     </div>
-    <div class="col-md-3">
-        <div class="card mb-4">
-            <div class="stat-card bg-success">
-                <div class="stat-value">{{ active_domains }}</div>
-                <div class="stat-title">Active Domains</div>
-                <div class="stat-icon">
-                    <i class="fas fa-check-circle"></i>
-                </div>
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0">Domains by Activity Status</h5>
+                <i class="fas fa-chart-pie text-primary"></i>
             </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card mb-4">
-            <div class="stat-card bg-warning">
-                <div class="stat-value">{{ inactive_domains }}</div>
-                <div class="stat-title">Inactive Domains</div>
-                <div class="stat-icon">
-                    <i class="fas fa-times-circle"></i>
-                </div>
-            </div>
-        </div>
-    </div>
-    <div class="col-md-3">
-        <div class="card mb-4">
-            <div class="stat-card bg-danger">
-                <div class="stat-value">{{ total_vulnerabilities }}</div>
-                <div class="stat-title">Vulnerabilities</div>
-                <div class="stat-icon">
-                    <i class="fas fa-bug"></i>
-                </div>
+            <div class="card-body">
+                <canvas id="activeStatusChart"></canvas>
             </div>
         </div>
     </div>
@@ -70,20 +105,6 @@
         </div>
     </div>
     <div class="col-md-6">
-        <div class="card">
-            <div class="card-header d-flex justify-content-between align-items-center">
-                <h5 class="mb-0">Domains by Status</h5>
-                <i class="fas fa-chart-bar text-primary"></i>
-            </div>
-            <div class="card-body">
-                <canvas id="statusChart"></canvas>
-            </div>
-        </div>
-    </div>
-</div>
-
-<div class="row mt-4">
-    <div class="col-md-12">
         <div class="card">
             <div class="card-header d-flex justify-content-between align-items-center">
                 <h5 class="mb-0">Recent Vulnerabilities</h5>
@@ -121,66 +142,25 @@
 {% block scripts %}
 <script>
     document.addEventListener('DOMContentLoaded', function() {
-        // Severity chart
-        var severityCtx = document.getElementById('severityChart').getContext('2d');
-        var severityChart = new Chart(severityCtx, {
-            type: 'doughnut',
-            data: {
-                labels: ['Critical', 'High', 'Medium', 'Low'],
-                datasets: [{
-                    data: [
-                        {{ severity_counts.CRITICAL }},
-                        {{ severity_counts.HIGH }},
-                        {{ severity_counts.MEDIUM }},
-                        {{ severity_counts.LOW }}
-                    ],
-                    backgroundColor: [
-                        '#9c27b0',  // Critical
-                        '#ff5c75',  // High
-                        '#ffbc42',  // Medium
-                        '#3ec1d3'   // Low
-                    ],
-                    borderWidth: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: '70%',
-                plugins: {
-                    legend: {
-                        position: 'bottom',
-                        labels: {
-                            padding: 20,
-                            boxWidth: 12
-                        }
-                    },
-                    title: {
-                        display: false
-                    }
-                }
-            }
-        });
-        
-        // Status chart
-        var statusCtx = document.getElementById('statusChart').getContext('2d');
-        var statusChart = new Chart(statusCtx, {
+        // HTTP Status Code chart
+        var httpStatusCtx = document.getElementById('httpStatusChart').getContext('2d');
+        var httpStatusChart = new Chart(httpStatusCtx, {
             type: 'bar',
             data: {
-                labels: ['New', 'In Progress', 'Finished', 'False Alarm'],
+                labels: ['200-299', '300-399', '400-499', '500-599'],
                 datasets: [{
-                    label: 'Domains by Status',
+                    label: 'Domains by HTTP Status Code',
                     data: [
-                        {{ domains_by_status['NEW'] }},
-                        {{ domains_by_status['IN PROGRESS'] }},
-                        {{ domains_by_status['FINISHED'] }},
-                        {{ domains_by_status['FALSE ALARM'] }}
+                        {{ domains_by_http_status['200-299'] }},
+                        {{ domains_by_http_status['300-399'] }},
+                        {{ domains_by_http_status['400-499'] }},
+                        {{ domains_by_http_status['500-599'] }}
                     ],
                     backgroundColor: [
-                        '#2e5bff',  // New
-                        '#ffbc42',  // In Progress
-                        '#44c97b',  // Finished
-                        '#ff5c75'   // False Alarm
+                        '#44c97b',  // 200-299 (green for success)
+                        '#ffbc42',  // 300-399 (orange for redirects)
+                        '#ff5c75',  // 400-499 (red for client errors)
+                        '#9c27b0'   // 500-599 (purple for server errors)
                     ],
                     borderWidth: 0,
                     borderRadius: 5
@@ -215,6 +195,125 @@
                 }
             }
         });
+        
+        // Active vs Inactive domains chart
+        var activeStatusCtx = document.getElementById('activeStatusChart').getContext('2d');
+        var activeStatusChart = new Chart(activeStatusCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Active', 'Inactive'],
+                datasets: [{
+                    data: [
+                        {{ active_domains }},
+                        {{ inactive_domains }}
+                    ],
+                    backgroundColor: [
+                        '#44c97b',  // Active (green)
+                        '#6c757d'   // Inactive (dark grey)
+                    ],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '70%',
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 20,
+                            boxWidth: 12
+                        }
+                    },
+                    title: {
+                        display: false
+                    }
+                }
+            }
+        });
+        
+        // Severity chart
+        var severityCtx = document.getElementById('severityChart').getContext('2d');
+        var severityChart = new Chart(severityCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Critical', 'High', 'Medium', 'Low'],
+                datasets: [{
+                    data: [
+                        {{ severity_counts.CRITICAL }},
+                        {{ severity_counts.HIGH }},
+                        {{ severity_counts.MEDIUM }},
+                        {{ severity_counts.LOW }}
+                    ],
+                    backgroundColor: [
+                        '#9c27b0',  // Critical
+                        '#ff5c75',  // High
+                        '#ffbc42',  // Medium (orange)
+                        '#3ec1d3'   // Low (blue)
+                    ],
+                    borderWidth: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '70%',
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: {
+                            padding: 20,
+                            boxWidth: 12
+                        }
+                    },
+                    title: {
+                        display: false
+                    }
+                }
+            }
+        });
+        
+        // Make charts clickable
+        
+        // HTTP Status Chart click handler
+        if (httpStatusChart) {
+            document.getElementById('httpStatusChart').onclick = function(evt) {
+                var activePoints = httpStatusChart.getElementsAtEventForMode(evt, 'nearest', {intersect: true}, false);
+                if (activePoints && activePoints.length > 0) {
+                    var firstPoint = activePoints[0];
+                    var label = httpStatusChart.data.labels[firstPoint.index];
+                    // Redirect to domains with http_status filter
+                    window.location.href = "{{ url_for('domains') }}?http_status=" + label;
+                }
+            };
+        }
+        
+        // Activity Status Chart click handler
+        if (activeStatusChart) {
+            document.getElementById('activeStatusChart').onclick = function(evt) {
+                var activePoints = activeStatusChart.getElementsAtEventForMode(evt, 'nearest', {intersect: true}, false);
+                if (activePoints && activePoints.length > 0) {
+                    var firstPoint = activePoints[0];
+                    var label = activeStatusChart.data.labels[firstPoint.index];
+                    // Redirect to domains with status filter
+                    window.location.href = "{{ url_for('domains') }}?status=" + (label === 'Active' ? 'ACTIVE' : 'INACTIVE');
+                }
+            };
+        }
+        
+        // Severity Chart click handler
+        if (severityChart) {
+            document.getElementById('severityChart').onclick = function(evt) {
+                var activePoints = severityChart.getElementsAtEventForMode(evt, 'nearest', {intersect: true}, false);
+                if (activePoints && activePoints.length > 0) {
+                    var firstPoint = activePoints[0];
+                    var label = severityChart.data.labels[firstPoint.index];
+                    // Redirect to vulnerabilities with severity filter
+                    window.location.href = "{{ url_for('domains') }}?vulnerability_severity=" + label.toUpperCase();
+                }
+            };
+        }
     });
 </script>
 {% endblock %}

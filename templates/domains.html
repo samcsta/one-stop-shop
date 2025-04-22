@@ -19,7 +19,7 @@
     </div>
     <div class="card-body">
         <div class="row">
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div class="form-group">
                     <label for="technologyFilter">
                         <i class="fas fa-code mr-1 text-primary"></i>Technology:
@@ -32,7 +32,7 @@
                     </select>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div class="form-group">
                     <label for="statusFilter">
                         <i class="fas fa-signal mr-1 text-primary"></i>Status:
@@ -44,7 +44,7 @@
                     </select>
                 </div>
             </div>
-            <div class="col-md-4">
+            <div class="col-md-3">
                 <div class="form-group">
                     <label for="assessmentFilter">
                         <i class="fas fa-tasks mr-1 text-primary"></i>Assessment:
@@ -55,6 +55,20 @@
                         <option value="IN PROGRESS">In Progress</option>
                         <option value="FINISHED">Finished</option>
                         <option value="FALSE ALARM">False Alarm</option>
+                    </select>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="form-group">
+                    <label for="httpStatusFilter">
+                        <i class="fas fa-server mr-1 text-primary"></i>HTTP Status:
+                    </label>
+                    <select class="form-control" id="httpStatusFilter" onchange="filterByHttpStatus(this.value)">
+                        <option value="">All HTTP Status</option>
+                        <option value="200-299">200-299 (Success)</option>
+                        <option value="300-399">300-399 (Redirect)</option>
+                        <option value="400-499">400-499 (Client Error)</option>
+                        <option value="500-599">500-599 (Server Error)</option>
                     </select>
                 </div>
             </div>
@@ -210,6 +224,16 @@ function filterByAssessment(assessment) {
     window.location.href = url.toString();
 }
 
+function filterByHttpStatus(httpStatus) {
+    let url = new URL(window.location);
+    if (httpStatus) {
+        url.searchParams.set('http_status', httpStatus);
+    } else {
+        url.searchParams.delete('http_status');
+    }
+    window.location.href = url.toString();
+}
+
 function resetFilters() {
     window.location.href = "{{ url_for('domains') }}";
 }
@@ -220,6 +244,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const techFilter = urlParams.get('technology');
     const statusFilter = urlParams.get('status');
     const assessmentFilter = urlParams.get('assessment');
+    const httpStatusFilter = urlParams.get('http_status');
     
     if (techFilter) {
         document.getElementById('technologyFilter').value = techFilter;
@@ -231,6 +256,10 @@ document.addEventListener('DOMContentLoaded', function() {
     
     if (assessmentFilter) {
         document.getElementById('assessmentFilter').value = assessmentFilter;
+    }
+    
+    if (httpStatusFilter) {
+        document.getElementById('httpStatusFilter').value = httpStatusFilter;
     }
 });
 </script>
