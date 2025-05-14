@@ -1,0 +1,1290 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <div>
+        <h1 class="dashboard-title mb-0">{{ domain.url }}</h1>
+        <div class="domain-meta">
+            <span class="badge {{ 'badge-success' if domain.status == 'ACTIVE' else 'badge-secondary' }} mr-2">
+                <i class="fas {{ 'fa-check-circle' if domain.status == 'ACTIVE' else 'fa-times-circle' }} mr-1"></i>{{ domain.status }}
+            </span>
+            <span class="badge status-{{ domain.assessment_status|lower|replace(' ', '-') }}">
+                {% if domain.assessment_status == 'NEW' %}
+                <i class="fas fa-star mr-1"></i>
+                {% elif domain.assessment_status == 'IN PROGRESS' %}
+                <i class="fas fa-spinner mr-1"></i>
+                {% elif domain.assessment_status == 'FINISHED' %}
+                <i class="fas fa-check mr-1"></i>
+                {% elif domain.assessment_status == 'FALSE ALARM' %}
+                <i class="fas fa-ban mr-1"></i>
+                {% endif %}
+                {{ domain.assessment_status }}
+            </span>
+        </div>
+    </div>
+    <div class="d-flex">
+        <a href="{{ url_for('domains') }}" class="btn btn-secondary mr-2">
+            <i class="fas fa-arrow-left mr-1"></i>Back to Domains
+        </a>
+        <div class="btn-group ml-2">
+            <button class="btn btn-primary dropdown-toggle" type="button" id="scanDropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                <i class="fas fa-search mr-1"></i>Scan Domain
+            </button>
+            <div class="dropdown-menu" aria-labelledby="scanDropdown">
+                <a class="dropdown-item" href="{{ url_for('basic_scanner_page') }}?domain={{ domain.url }}&autorun=true">
+                    <i class="fas fa-search mr-1"></i>Basic Scan
+                </a>
+                <a class="dropdown-item" href="{{ url_for('nuclei_scanner_page') }}?domain={{ domain.url }}&autorun=true">
+                    <i class="fas fa-radiation mr-1"></i>Nuclei Scan
+                </a>
+                {% if domain.status == 'ACTIVE' %}
+                <a class="dropdown-item" href="{{ url_for('api_bypass_page') }}?domain=https://{{ domain.url }}&domain_id={{ domain.id }}">
+                    <i class="fas fa-key mr-1"></i>API Bypass
+                </a>
+                {% endif %}
+                {% set has_main_js = false %}
+                {% for endpoint in domain.endpoints %}
+                    {% if 'main' in endpoint.url and '.js' in endpoint.url %}
+                        {% set has_main_js = true %}
+                    {% endif %}
+                {% endfor %}
+                
+                {% if domain.endpoints and has_main_js %}
+                <a class="dropdown-item" href="{{ url_for('inspect_page') }}?domain_id={{ domain.id }}">
+                    <i class="fas fa-code mr-1"></i>Analyze main.js
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<ul class="nav nav-tabs mb-4" id="domainDetailsTabs" role="tablist">
+    <li class="nav-item">
+        <a class="nav-link active" id="overview-tab" data-toggle="tab" href="#overview" role="tab" aria-controls="overview" aria-selected="true">
+            <i class="fas fa-info-circle mr-1"></i>Overview
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="vulnerabilities-tab" data-toggle="tab" href="#vulnerabilities" role="tab" aria-controls="vulnerabilities" aria-selected="false">
+            <i class="fas fa-bug mr-1"></i>Vulnerabilities
+            <span class="badge badge-{{ 'danger' if domain.vulnerabilities|length > 0 else 'secondary' }} ml-1">{{ domain.vulnerabilities|length }}</span>
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="endpoints-tab" data-toggle="tab" href="#endpoints" role="tab" aria-controls="endpoints" aria-selected="false">
+            <i class="fas fa-sitemap mr-1"></i>Endpoints
+            <span class="badge badge-info ml-1">{{ domain.endpoints|length if domain.endpoints else 0 }}</span>
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="technologies-tab" data-toggle="tab" href="#technologies" role="tab" aria-controls="technologies" aria-selected="false">
+            <i class="fas fa-microchip mr-1"></i>Technologies
+            <span class="badge badge-info ml-1">{{ domain.technologies|length if domain.technologies else 0 }}</span>
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="bypasses-tab" data-toggle="tab" href="#bypasses" role="tab" aria-controls="bypasses" aria-selected="false">
+            <i class="fas fa-key mr-1"></i>API Bypasses
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="evidence-tab" data-toggle="tab" href="#evidence" role="tab" aria-controls="evidence" aria-selected="false">
+            <i class="fas fa-camera mr-1"></i>Evidence
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link" id="notes-tab" data-toggle="tab" href="#notes" role="tab" aria-controls="notes" aria-selected="false">
+            <i class="fas fa-clipboard-list mr-1"></i>Notes
+        </a>
+    </li>
+</ul>
+
+<div class="tab-content" id="domainDetailsTabContent">
+    <div class="tab-pane fade show active" id="overview" role="tabpanel" aria-labelledby="overview-tab">
+        <div class="row">
+            <div class="col-md-8">
+                <div class="card mb-4">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-info-circle mr-2 text-primary"></i>Domain Information</h5>
+                        {% if domain.assigned_to %}
+                        <span class="badge badge-info">
+                            <i class="fas fa-user mr-1"></i>Assigned to: {{ domain.assigned_to }}
+                        </span>
+                        {% endif %}
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="text-muted small text-uppercase">URL</label>
+                                    <div>
+                                        <a href="{{ 'https://' + domain.url }}" target="_blank" class="text-primary">
+                                            {{ domain.url }} <i class="fas fa-external-link-alt fa-sm"></i>
+                                        </a>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="text-muted small text-uppercase">Date Added</label>
+                                    <div>{{ domain.date_added.strftime('%Y-%m-%d %H:%M') }}</div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="text-muted small text-uppercase">Last Scanned</label>
+                                    <div>{{ domain.last_scanned.strftime('%Y-%m-%d %H:%M') }}</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3">
+                                    <label class="text-muted small text-uppercase">Status</label>
+                                    <div>
+                                        <span class="badge {{ 'badge-success' if domain.status == 'ACTIVE' else 'badge-secondary' }}">
+                                            {{ domain.status }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="text-muted small text-uppercase">Assessment Status</label>
+                                    <div>
+                                        <span class="badge status-{{ domain.assessment_status|lower|replace(' ', '-') }}">
+                                            {{ domain.assessment_status }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="text-muted small text-uppercase">Assigned To</label>
+                                    <div>{{ domain.assigned_to or 'Not assigned' }}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="mb-3">
+                            <label class="text-muted small text-uppercase">Technologies</label>
+                            <div>
+                                {% for tech in domain.technologies %}
+                                <span class="tech-badge">{{ tech.name }}{% if tech.version %} {{ tech.version }}{% endif %}</span>
+                                {% else %}
+                                <span class="text-muted">No technologies detected</span>
+                                {% endfor %}
+                            </div>
+                        </div>
+                        <hr>
+                        <div class="assessment-controls mt-3">
+                            <label class="text-muted small text-uppercase mb-2">Assessment Controls</label>
+                            <div class="btn-group d-flex flex-wrap">
+                                <form action="{{ url_for('update_domain', id=domain.id) }}" method="post" class="mr-2 mb-2">
+                                    <input type="hidden" name="status" value="NEW">
+                                    <button type="submit" class="btn {{ 'btn-primary' if domain.assessment_status == 'NEW' else 'btn-outline-primary' }}">
+                                        <i class="fas fa-star mr-1"></i>NEW
+                                    </button>
+                                </form>
+                                <form action="{{ url_for('update_domain', id=domain.id) }}" method="post" class="mr-2 mb-2">
+                                    <input type="hidden" name="status" value="IN PROGRESS">
+                                    <button type="submit" class="btn {{ 'btn-warning' if domain.assessment_status == 'IN PROGRESS' else 'btn-outline-warning' }}">
+                                        <i class="fas fa-spinner mr-1"></i>IN PROGRESS
+                                    </button>
+                                </form>
+                                <form action="{{ url_for('update_domain', id=domain.id) }}" method="post" class="mr-2 mb-2">
+                                    <input type="hidden" name="status" value="FINISHED">
+                                    <button type="submit" class="btn {{ 'btn-success' if domain.assessment_status == 'FINISHED' else 'btn-outline-success' }}">
+                                        <i class="fas fa-check mr-1"></i>FINISHED
+                                    </button>
+                                </form>
+                                <form action="{{ url_for('update_domain', id=domain.id) }}" method="post" class="mb-2">
+                                    <input type="hidden" name="status" value="FALSE ALARM">
+                                    <button type="submit" class="btn {{ 'btn-danger' if domain.assessment_status == 'FALSE ALARM' else 'btn-outline-danger' }}">
+                                        <i class="fas fa-ban mr-1"></i>FALSE ALARM
+                                    </button>
+                                </form>
+                            </div>
+                            
+                            <div class="mt-3 d-flex flex-wrap">
+                                {% if not domain.assigned_to %}
+                                <form action="{{ url_for('update_domain', id=domain.id) }}" method="post" class="d-inline-block mr-2 mb-2">
+                                    <input type="hidden" name="claim" value="true">
+                                    <button type="submit" class="btn btn-success">
+                                        <i class="fas fa-user-check mr-1"></i>Claim Domain
+                                    </button>
+                                </form>
+                                {% else %}
+                                <form action="{{ url_for('update_domain', id=domain.id) }}" method="post" class="d-inline-block mr-2 mb-2">
+                                    <input type="hidden" name="unclaim" value="true">
+                                    <button type="submit" class="btn btn-outline-secondary">
+                                        <i class="fas fa-user-times mr-1"></i>Unclaim Domain
+                                    </button>
+                                </form>
+                                {% endif %}
+                                
+                                <form action="{{ url_for('delete_domain', id=domain.id) }}" method="post" class="d-inline-block mb-2"
+                                    onsubmit="return confirm('Are you sure you want to delete this domain and all its data? This action cannot be undone.');">
+                                    <button type="submit" class="btn btn-danger">
+                                        <i class="fas fa-trash mr-1"></i>Delete Domain
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-chart-pie mr-2 text-primary"></i>Vulnerability Summary</h5>
+                    </div>
+                    <div class="card-body p-3">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="alert bg-dark text-white mb-3 text-center">
+                                    <h3>{{ domain.vulnerabilities|length }}</h3>
+                                    <div>Total Vulnerabilities</div>
+                                </div>
+                                
+                                <div class="progress mb-3" style="height: 25px;">
+                                    {% set critical_count = domain.vulnerabilities|selectattr('severity', 'equalto', 'CRITICAL')|list|length %}
+                                    {% set high_count = domain.vulnerabilities|selectattr('severity', 'equalto', 'HIGH')|list|length %}
+                                    {% set medium_count = domain.vulnerabilities|selectattr('severity', 'equalto', 'MEDIUM')|list|length %}
+                                    {% set low_count = domain.vulnerabilities|selectattr('severity', 'equalto', 'LOW')|list|length %}
+                                    
+                                    {% set total_vulns = domain.vulnerabilities|length %}
+                                    {% set critical_pct = (critical_count / total_vulns * 100) if total_vulns > 0 else 0 %}
+                                    {% set high_pct = (high_count / total_vulns * 100) if total_vulns > 0 else 0 %}
+                                    {% set medium_pct = (medium_count / total_vulns * 100) if total_vulns > 0 else 0 %}
+                                    {% set low_pct = (low_count / total_vulns * 100) if total_vulns > 0 else 0 %}
+                                    
+                                    {% if critical_count > 0 %}
+                                    <div class="progress-bar severity-critical" role="progressbar" style="width: {{ critical_pct }}%" 
+                                         aria-valuenow="{{ critical_pct }}" aria-valuemin="0" aria-valuemax="100">
+                                        {{ critical_count }}
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if high_count > 0 %}
+                                    <div class="progress-bar severity-high" role="progressbar" style="width: {{ high_pct }}%" 
+                                         aria-valuenow="{{ high_pct }}" aria-valuemin="0" aria-valuemax="100">
+                                        {{ high_count }}
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if medium_count > 0 %}
+                                    <div class="progress-bar severity-medium" role="progressbar" style="width: {{ medium_pct }}%" 
+                                         aria-valuenow="{{ medium_pct }}" aria-valuemin="0" aria-valuemax="100">
+                                        {{ medium_count }}
+                                    </div>
+                                    {% endif %}
+                                    
+                                    {% if low_count > 0 %}
+                                    <div class="progress-bar severity-low" role="progressbar" style="width: {{ low_pct }}%" 
+                                         aria-valuenow="{{ low_pct }}" aria-valuemin="0" aria-valuemax="100">
+                                        {{ low_count }}
+                                    </div>
+                                    {% endif %}
+                                </div>
+                                
+                                <div class="d-flex justify-content-between">
+                                    <span><i class="fas fa-circle severity-critical"></i> Critical: {{ critical_count }}</span>
+                                    <span><i class="fas fa-circle severity-high"></i> High: {{ high_count }}</span>
+                                    <span><i class="fas fa-circle severity-medium"></i> Medium: {{ medium_count }}</span>
+                                    <span><i class="fas fa-circle severity-low"></i> Low: {{ low_count }}</span>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="alert alert-info mb-2 p-2">
+                                    <strong>Endpoints:</strong> {{ domain.endpoints|length if domain.endpoints else 0 }} discovered
+                                </div>
+                                <div class="alert alert-info mb-2 p-2">
+                                    <strong>Technologies:</strong> {{ domain.technologies|length if domain.technologies else 0 }} detected
+                                </div>
+                                <div class="alert alert-info mb-2 p-2">
+                                    <strong>Last Scan:</strong> {{ domain.last_scanned.strftime('%Y-%m-%d %H:%M') }}
+                                </div>
+                                <div class="alert alert-info mb-2 p-2">
+                                    <strong>Status:</strong>
+                                    <span class="badge {{ 'badge-success' if domain.status == 'ACTIVE' else 'badge-secondary' }}">
+                                        {{ domain.status }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="col-md-4">
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-bolt mr-2 text-primary"></i>Quick Actions</h5>
+                    </div>
+                    <div class="card-body">
+                        <a href="{{ url_for('basic_scanner_page') }}?domain={{ domain.url }}&autorun=true" class="btn btn-primary btn-block mb-2">
+                            <i class="fas fa-search mr-1"></i>Basic Scan
+                        </a>
+                        <a href="{{ url_for('nuclei_scanner_page') }}?domain={{ domain.url }}&autorun=true" class="btn btn-info btn-block mb-2">
+                            <i class="fas fa-radiation mr-1"></i>Nuclei Scan
+                        </a>
+                        <a href="{{ url_for('api_bypass_page') }}?domain=https://{{ domain.url }}&domain_id={{ domain.id }}" class="btn btn-dark btn-block mb-2">
+                            <i class="fas fa-key mr-1"></i>API Bypass Test
+                        </a>
+                        {% if domain.endpoints and has_main_js %}
+                        <a href="{{ url_for('inspect_page') }}?domain_id={{ domain.id }}" class="btn btn-warning btn-block mb-2">
+                            <i class="fas fa-code mr-1"></i>Analyze main.js
+                        </a>
+                        {% endif %}
+                        <a href="{{ 'https://' + domain.url }}" target="_blank" class="btn btn-success btn-block">
+                            <i class="fas fa-external-link-alt mr-1"></i>Visit Site
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-history mr-2 text-primary"></i>Scan Log</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="list-group list-group-flush" id="scan-log">
+                            <div class="list-group-item">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <span class="font-weight-bold">Latest Scan</span>
+                                    <small class="text-muted">{{ domain.last_scanned.strftime('%Y-%m-%d %H:%M') }}</small>
+                                </div>
+                                <div class="mt-2">
+                                    <span class="badge badge-{{ 'success' if domain.status == 'ACTIVE' else 'danger' }} mr-2">Status: {{ domain.status }}</span>
+                                    <span class="badge badge-info mr-2">Vulnerabilities: {{ domain.vulnerabilities|length }}</span>
+                                    <span class="badge badge-secondary">Technologies: {{ domain.technologies|length }}</span>
+                                </div>
+                            </div>
+                            </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="tab-pane fade" id="vulnerabilities" role="tabpanel" aria-labelledby="vulnerabilities-tab">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-bug mr-2 text-primary"></i>Vulnerabilities</h5>
+                <div>
+                    <span class="badge badge-{{ 'success' if domain.vulnerabilities|length == 0 else 'danger' }} mr-2">
+                        {{ domain.vulnerabilities|length }} Found
+                    </span>
+                    <span class="badge badge-success mr-1" title="Confirmed true positives">
+                        <i class="fas fa-check"></i> {{ domain.vulnerabilities|selectattr('status', 'equalto', 'CONFIRMED')|list|length }}
+                    </span>
+                    <span class="badge badge-secondary" title="Dismissed false positives">
+                        <i class="fas fa-times"></i> {{ domain.vulnerabilities|selectattr('status', 'equalto', 'DISMISSED')|list|length }}
+                    </span>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                {% if domain.vulnerabilities %}
+                <div class="table-responsive">
+                    <table class="table mb-0" id="vulnerabilities-table">
+                        <thead>
+                            <tr>
+                                <th>Title</th>
+                                <th>Severity</th>
+                                <th>CWE/CVE</th>
+                                <th>Location</th>
+                                <th>Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for vuln in domain.vulnerabilities %}
+                            <tr data-severity="{{ vuln.severity|lower }}">
+                                <td>{{ vuln.title }}</td>
+                                <td>
+                                    <span class="severity-{{ vuln.severity|lower }}">{{ vuln.severity }}</span>
+                                </td>
+                                <td>
+                                    {% if vuln.cwe %}{{ vuln.cwe }}{% endif %}
+                                    {% if vuln.cve %}{% if vuln.cwe %}<br>{% endif %}{{ vuln.cve }}{% endif %}
+                                    {% if not vuln.cwe and not vuln.cve %}-{% endif %}
+                                </td>
+                                <td>
+                                    <a href="#" onclick="inspectLocation('{{ vuln.location }}', '{{ vuln.title }}', '{{ vuln.id }}'); return false;" 
+                                      title="Click to inspect location details">
+                                        {{ vuln.location }}
+                                    </a>
+                                </td>
+                                <td>{{ vuln.date_discovered.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    <div class="btn-group">
+                                        <form action="{{ url_for('delete_vulnerability', id=vuln.id) }}" method="post" onsubmit="return confirm('Are you sure you want to delete this vulnerability?');">
+                                            <button type="submit" class="btn btn-sm btn-danger">
+                                                <i class="fas fa-trash"></i>
+                                            </button>
+                                        </form>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <div class="modal fade" id="vuln-modal-{{ vuln.id }}" tabindex="-1" role="dialog" aria-hidden="true">
+                                <div class="modal-dialog modal-lg" role="document">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">{{ vuln.title }}</h5>
+                                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                <span aria-hidden="true">&times;</span>
+                                            </button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <div class="row mb-3">
+                                                <div class="col-md-4">
+                                                    <p><strong>Severity:</strong> <span class="severity-{{ vuln.severity|lower }}">{{ vuln.severity }}</span></p>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <p><strong>{{ vuln.cwe or 'None' }}</strong></p>
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <p><strong>{{ vuln.cve or 'None' }}</strong></p>
+                                                </div>
+                                            </div>
+                                            
+                                            <form action="{{ url_for('update_vulnerability', id=vuln.id) }}" method="post">
+                                                <div class="form-group">
+                                                    <label><strong>Description</strong></label>
+                                                    <textarea class="form-control" name="notes" rows="3">{{ vuln.description or '' }}</textarea>
+                                                </div>
+                                                
+                                                <div class="form-group">
+                                                    <label><strong>Severity</strong></label>
+                                                    <select class="form-control" name="severity">
+                                                        <option value="LOW" {% if vuln.severity == 'LOW' %}selected{% endif %}>Low</option>
+                                                        <option value="MEDIUM" {% if vuln.severity == 'MEDIUM' %}selected{% endif %}>Medium</option>
+                                                        <option value="HIGH" {% if vuln.severity == 'HIGH' %}selected{% endif %}>High</option>
+                                                        <option value="CRITICAL" {% if vuln.severity == 'CRITICAL' %}selected{% endif %}>Critical</option>
+                                                    </select>
+                                                </div>
+                                                
+                                                <div class="form-group">
+                                                    <label><strong>Location</strong></label>
+                                                    <div class="input-group">
+                                                        <input type="text" class="form-control" value="{{ vuln.location }}" readonly>
+                                                        <div class="input-group-append">
+                                                            <a href="{{ vuln.location }}" target="_blank" class="btn btn-outline-primary">
+                                                                <i class="fas fa-external-link-alt"></i> Open
+                                                            </a>
+                                                            {% if 'javascript' in vuln.evidence|lower or '.js' in vuln.location|lower %}
+                                                            <a href="{{ url_for('inspect_page') }}?url={{ vuln.location }}" 
+                                                               class="btn btn-outline-warning" target="_blank">
+                                                                <i class="fas fa-code"></i> Analyze JS
+                                                            </a>
+                                                            {% endif %}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="form-group">
+                                                    <label><strong>Evidence</strong></label>
+                                                    {% if vuln.evidence %}
+                                                    <div class="mt-2">
+                                                        <button class="btn btn-sm btn-info" type="button" data-toggle="collapse" 
+                                                                data-target="#evidenceCollapse{{ vuln.id }}">
+                                                            <i class="fas fa-search-plus mr-1"></i>View Evidence
+                                                        </button>
+                                                        <div class="collapse mt-2" id="evidenceCollapse{{ vuln.id }}">
+                                                            <div class="card card-body">
+                                                                <pre class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow-y: auto;"><code>{{ vuln.evidence or 'No evidence provided' }}</code></pre>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                    {% else %}
+                                                    <pre class="bg-dark text-light p-3 rounded" style="max-height: 400px; overflow-y: auto;"><code>No evidence provided</code></pre>
+                                                    {% endif %}
+                                                </div>
+                                                
+                                                <div class="form-group">
+                                                    <label><strong>Discovery Date</strong></label>
+                                                    <p>{{ vuln.date_discovered.strftime('%Y-%m-%d %H:%M') }}</p>
+                                                </div>
+                                                
+                                                <div class="form-group">
+                                                    <label><strong>Classification</strong></label>
+                                                    <div class="d-flex mb-2">
+                                                        <form action="{{ url_for('classify_vulnerability_route', id=vuln.id) }}" method="post" class="mr-2">
+                                                            <input type="hidden" name="is_true_positive" value="true">
+                                                            <button type="submit" class="btn {{ 'btn-success' if vuln.status == 'CONFIRMED' else 'btn-outline-success' }}">
+                                                                <i class="fas fa-check mr-1"></i>Confirm (True Positive)
+                                                            </button>
+                                                        </form>
+                                                        <form action="{{ url_for('classify_vulnerability_route', id=vuln.id) }}" method="post">
+                                                            <input type="hidden" name="is_true_positive" value="false">
+                                                            <button type="submit" class="btn {{ 'btn-danger' if vuln.status == 'DISMISSED' else 'btn-outline-danger' }}">
+                                                                <i class="fas fa-times mr-1"></i>Dismiss (False Positive)
+                                                            </button>
+                                                        </form>
+                                                    </div>
+                                                    {% if vuln.status %}
+                                                    <div class="alert alert-{{ 'success' if vuln.status == 'CONFIRMED' else 'secondary' }} mt-2">
+                                                        {{ 'Confirmed as True Positive' if vuln.status == 'CONFIRMED' else 'Dismissed as False Positive' }}
+                                                        {% if vuln.last_updated %}
+                                                        <small class="d-block mt-1">Updated: {{ vuln.last_updated.strftime('%Y-%m-%d %H:%M') }}</small>
+                                                        {% endif %}
+                                                    </div>
+                                                    {% endif %}
+                                                </div>
+                                                
+                                                <div class="text-right">
+                                                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                                                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="p-3">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary filter-vuln" data-filter="all">All</button>
+                            <button class="btn btn-sm btn-outline-danger filter-vuln" data-filter="critical">Critical</button>
+                            <button class="btn btn-sm btn-outline-danger filter-vuln" data-filter="high">High</button>
+                            <button class="btn btn-sm btn-outline-warning filter-vuln" data-filter="medium">Medium</button>
+                            <button class="btn btn-sm btn-outline-info filter-vuln" data-filter="low">Low</button>
+                        </div>
+                        <div>
+                            <a href="{{ url_for('nuclei_scanner_page') }}?domain={{ domain.url }}&autorun=true" class="btn btn-primary">
+                                <i class="fas fa-search mr-1"></i>Run New Scan
+                            </a>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-shield-alt fa-3x text-muted mb-3"></i>
+                    <h5>No vulnerabilities detected</h5>
+                    <p class="text-muted">This domain appears to be secure based on our last scan.</p>
+                    <a href="{{ url_for('nuclei_scanner_page') }}?domain={{ domain.url }}" class="btn btn-primary">
+                        <i class="fas fa-sync-alt mr-1"></i>Run a new scan
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="tab-pane fade" id="endpoints" role="tabpanel" aria-labelledby="endpoints-tab">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-sitemap mr-2 text-primary"></i>Discovered Endpoints</h5>
+                <div>
+                    <span class="badge badge-info">{{ domain.endpoints|length if domain.endpoints else 0 }} Found</span>
+                    <button class="btn btn-sm btn-outline-primary ml-2" id="toggle-interesting-only">Show Interesting Only</button>
+                </div>
+            </div>
+            <div class="card-body p-0">
+                {% if domain.endpoints and domain.endpoints|length > 0 %}
+                <div class="table-responsive">
+                    <table class="table mb-0" id="endpoints-table">
+                        <thead>
+                            <tr>
+                                <th>Endpoint</th>
+                                <th>Status</th>
+                                <th>Content Type</th>
+                                <th>Discovery Date</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for endpoint in domain.endpoints %}
+                            <tr class="{{ 'table-success' if endpoint.is_interesting else '' }}" data-interesting="{{ endpoint.is_interesting|lower }}">
+                                <td>
+                                    <a href="{{ endpoint.url }}" target="_blank" rel="noopener noreferrer">
+                                        {{ endpoint.path }} <i class="fas fa-external-link-alt fa-sm"></i>
+                                    </a>
+                                </td>
+                                <td>
+                                    {% if endpoint.status_code == 200 %}
+                                    <span class="badge badge-success">200 OK</span>
+                                    {% elif endpoint.status_code == 403 %}
+                                    <span class="badge badge-warning">403 Forbidden</span>
+                                    {% elif endpoint.status_code == 401 %}
+                                    <span class="badge badge-warning">401 Unauthorized</span>
+                                    {% elif endpoint.status_code == 404 %}
+                                    <span class="badge badge-secondary">404 Not Found</span>
+                                    {% elif endpoint.status_code %}
+                                    <span class="badge badge-info">{{ endpoint.status_code }}</span>
+                                    {% else %}
+                                    <span class="badge badge-secondary">Unknown</span>
+                                    {% endif %}
+                                </td>
+                                <td>{{ endpoint.content_type or 'Unknown' }}</td>
+                                <td>{{ endpoint.date_discovered.strftime('%Y-%m-%d') }}</td>
+                                <td>
+                                    <div class="btn-group">
+                                        <button class="btn btn-sm btn-info" data-toggle="modal" data-target="#endpoint-modal-{{ endpoint.id }}">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                        {% if endpoint.status_code == 403 %}
+                                        <a href="{{ url_for('api_bypass_page') }}?domain={{ endpoint.url }}&domain_id={{ domain.id }}" class="btn btn-sm btn-dark">
+                                            <i class="fas fa-key"></i>
+                                        </a>
+                                        {% endif %}
+                                        
+                                        {% if 'javascript' in endpoint.content_type|lower or '.js' in endpoint.url|lower %}
+                                        <a href="{{ url_for('inspect_page') }}?url={{ endpoint.url }}" class="btn btn-sm btn-warning" 
+                                           title="Analyze in Main.js Analyzer">
+                                            <i class="fas fa-code"></i>
+                                        </a>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <div class="modal fade" id="endpoint-modal-{{ endpoint.id }}" tabindex="-1" role="dialog" aria-hidden="true">
+                                <div class="modal-dialog" role="document">
+                                    <div class="modal-content">
+                                        <div class="modal-header">
+                                            <h5 class="modal-title">{{ endpoint.path }}</h5>
+                                            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                <span aria-hidden="true">&times;</span>
+                                            </button>
+                                        </div>
+                                        <div class="modal-body">
+                                            <div class="mb-3">
+                                                <label class="font-weight-bold">Full URL:</label>
+                                                <div>
+                                                    <a href="{{ endpoint.url }}" target="_blank" rel="noopener noreferrer">
+                                                        {{ endpoint.url }} <i class="fas fa-external-link-alt fa-sm"></i>
+                                                    </a>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="row mb-3">
+                                                <div class="col-md-6">
+                                                    <label class="font-weight-bold">Method:</label>
+                                                    <div>{{ endpoint.method }}</div>
+                                                </div>
+                                                <div class="col-md-6">
+                                                    <label class="font-weight-bold">Status Code:</label>
+                                                    <div>
+                                                        {% if endpoint.status_code == 200 %}
+                                                        <span class="badge badge-success">200 OK</span>
+                                                        {% elif endpoint.status_code == 403 %}
+                                                        <span class="badge badge-warning">403 Forbidden</span>
+                                                        {% elif endpoint.status_code == 401 %}
+                                                        <span class="badge badge-warning">401 Unauthorized</span>
+                                                        {% elif endpoint.status_code == 404 %}
+                                                        <span class="badge badge-secondary">404 Not Found</span>
+                                                        {% elif endpoint.status_code %}
+                                                        <span class="badge badge-info">{{ endpoint.status_code }}</span>
+                                                        {% else %}
+                                                        <span class="badge badge-secondary">Unknown</span>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="mb-3">
+                                                <label class="font-weight-bold">Content Type:</label>
+                                                <div>{{ endpoint.content_type or 'Unknown' }}</div>
+                                            </div>
+                                            
+                                            <div class="mb-3">
+                                                <label class="font-weight-bold">Discovery Date:</label>
+                                                <div>{{ endpoint.date_discovered.strftime('%Y-%m-%d %H:%M') }}</div>
+                                            </div>
+                                            
+                                            <form action="{{ url_for('update_endpoint', id=endpoint.id) }}" method="post">
+                                                <div class="form-group">
+                                                    <label class="font-weight-bold">Notes:</label>
+                                                    <textarea class="form-control" name="notes" rows="3">{{ endpoint.notes or '' }}</textarea>
+                                                </div>
+                                                
+                                                <div class="form-check mb-3">
+                                                    <input class="form-check-input" type="checkbox" name="is_interesting" id="endpointInteresting-{{ endpoint.id }}" {{ 'checked' if endpoint.is_interesting else '' }}>
+                                                    <label class="form-check-label" for="endpointInteresting-{{ endpoint.id }}">
+                                                        Mark as interesting endpoint
+                                                    </label>
+                                                </div>
+                                                
+                                                {% if endpoint.status_code == 403 %}
+                                                <div class="alert alert-warning">
+                                                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                                                    This endpoint returns a 403 Forbidden status. 
+                                                    <a href="{{ url_for('api_bypass_page') }}?domain={{ endpoint.url }}&domain_id={{ domain.id }}" class="btn btn-sm btn-dark mt-2">
+                                                        <i class="fas fa-key mr-1"></i>Try API Bypass
+                                                    </a>
+                                                </div>
+                                                {% endif %}
+                                                
+                                                <div class="text-right">
+                                                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                                                    <button type="submit" class="btn btn-primary">Save Changes</button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-sitemap fa-3x text-muted mb-3"></i>
+                    <h5>No endpoints discovered</h5>
+                    <p class="text-muted">Run a scan to discover endpoints on this domain</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="tab-pane fade" id="technologies" role="tabpanel" aria-labelledby="technologies-tab">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-microchip mr-2 text-primary"></i>Detected Technologies</h5>
+            </div>
+            <div class="card-body">
+                {% if domain.technologies and domain.technologies|length > 0 %}
+                <div class="row">
+                    <div class="col-md-8">
+                        <div class="table-responsive">
+                            <table class="table">
+                                <thead>
+                                    <tr>
+                                        <th>Technology</th>
+                                        <th>Version</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for tech in domain.technologies %}
+                                    <tr>
+                                        <td>{{ tech.name }}</td>
+                                        <td>{{ tech.version or 'Unknown' }}</td>
+                                        <td>
+                                            {% if tech.version %}
+                                                {% if 'jquery' in tech.name|lower and tech.version|float < 3.0 %}
+                                                <span class="badge badge-warning">Outdated</span>
+                                                {% elif 'bootstrap' in tech.name|lower and tech.version|float < 4.0 %}
+                                                <span class="badge badge-warning">Outdated</span>
+                                                {% elif 'wordpress' in tech.name|lower and tech.version|float < 5.9 %}
+                                                <span class="badge badge-warning">Outdated</span>
+                                                {% else %}
+                                                <span class="badge badge-success">Current</span>
+                                                {% endif %}
+                                            {% else %}
+                                                <span class="badge badge-secondary">Unknown</span>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="card">
+                            <div class="card-header bg-primary text-white">
+                                <h6 class="mb-0">Technology Cloud</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="tech-cloud">
+                                    {% for tech in domain.technologies %}
+                                    <div class="tech-badge tech-badge-lg">{{ tech.name }}</div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="card mt-3">
+                            <div class="card-header bg-info text-white">
+                                <h6 class="mb-0">Technology Risks</h6>
+                            </div>
+                            <div class="card-body">
+                                <ul class="mb-0">
+                                    {% set has_outdated = false %}
+                                    {% for tech in domain.technologies %}
+                                        {% if tech.version %}
+                                            {% if 'jquery' in tech.name|lower and tech.version|float < 3.0 %}
+                                                <li>jQuery {{ tech.version }} is outdated and may contain vulnerabilities</li>
+                                                {% set has_outdated = true %}
+                                            {% elif 'bootstrap' in tech.name|lower and tech.version|float < 4.0 %}
+                                                <li>Bootstrap {{ tech.version }} is outdated and may contain vulnerabilities</li>
+                                                {% set has_outdated = true %}
+                                            {% elif 'wordpress' in tech.name|lower and tech.version|float < 5.9 %}
+                                                <li>WordPress {{ tech.version }} is outdated and should be updated</li>
+                                                {% set has_outdated = true %}
+                                            {% endif %}
+                                        {% endif %}
+                                    {% endfor %}
+                                    
+                                    {% if not has_outdated %}
+                                    <li>No significant risks detected with current technologies</li>
+                                    {% endif %}
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-microchip fa-3x text-muted mb-3"></i>
+                    <h5>No technologies detected</h5>
+                    <p class="text-muted">Run a scan to detect technologies used by this domain</p>
+                    <a href="{{ url_for('basic_scanner_page') }}?domain={{ domain.url }}" class="btn btn-primary">
+                        <i class="fas fa-search mr-1"></i>Run Technology Scan
+                    </a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="tab-pane fade" id="bypasses" role="tabpanel" aria-labelledby="bypasses-tab">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-key mr-2 text-primary"></i>API Endpoint Bypasses</h5>
+                <a href="{{ url_for('api_bypass_page') }}?domain=https://{{ domain.url }}&domain_id={{ domain.id }}" class="btn btn-dark">
+                    <i class="fas fa-key mr-1"></i>New Bypass Test
+                </a>
+            </div>
+            <div class="card-body">
+                <div id="api-bypass-results">
+                    {% if domain.api_bypasses|default([])|length > 0 %}
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Endpoint</th>
+                                    <th>Bypass Method</th>
+                                    <th>Status</th>
+                                    <th>Date Tested</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for bypass in domain.api_bypasses|default([]) %}
+                                <tr>
+                                    <td>{{ bypass.endpoint }}</td>
+                                    <td><code>{{ bypass.method }}</code></td>
+                                    <td>
+                                        <span class="badge badge-success">Successful</span>
+                                    </td>
+                                    <td>{{ bypass.date_tested.strftime('%Y-%m-%d') }}</td>
+                                    <td>
+                                        <button class="btn btn-sm btn-info" data-toggle="modal" data-target="#bypass-modal-{{ bypass.id }}">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                
+                                <div class="modal fade" id="bypass-modal-{{ bypass.id }}" tabindex="-1" role="dialog" aria-hidden="true">
+                                    <div class="modal-dialog modal-lg" role="document">
+                                        <div class="modal-content">
+                                            <div class="modal-header">
+                                                <h5 class="modal-title">API Bypass Details</h5>
+                                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                                    <span aria-hidden="true">&times;</span>
+                                                </button>
+                                            </div>
+                                            <div class="modal-body">
+                                                <div class="row mb-3">
+                                                    <div class="col-md-6">
+                                                        <p><strong>Endpoint:</strong> {{ bypass.endpoint }}</p>
+                                                    </div>
+                                                    <div class="col-md-6">
+                                                        <p><strong>Status:</strong> <span class="badge badge-success">Successful</span></p>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div class="form-group">
+                                                    <label><strong>Bypass Method</strong></label>
+                                                    <pre class="bg-dark text-light p-3 rounded"><code>{{ bypass.method }}</code></pre>
+                                                </div>
+                                                
+                                                <div class="form-group">
+                                                    <label><strong>Curl Command</strong></label>
+                                                    <pre class="bg-dark text-light p-3 rounded"><code>{{ bypass.curl_command }}</code></pre>
+                                                </div>
+                                                
+                                                <div class="form-group">
+                                                    <label><strong>Response</strong></label>
+                                                    <pre class="bg-dark text-light p-3 rounded" style="max-height: 300px; overflow-y: auto;"><code>{{ bypass.response }}</code></pre>
+                                                </div>
+                                                
+                                                <div class="form-group">
+                                                    <label><strong>Notes</strong></label>
+                                                    <p>{{ bypass.notes or 'No notes provided' }}</p>
+                                                </div>
+                                                
+                                                <div class="alert alert-warning">
+                                                    <i class="fas fa-exclamation-triangle mr-1"></i>
+                                                    This bypass allows access to a protected endpoint. Consider implementing proper access controls.
+                                                </div>
+                                            </div>
+                                            <div class="modal-footer">
+                                                <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-4">
+                        <i class="fas fa-key fa-3x text-muted mb-3"></i>
+                        <h5>No API bypasses found</h5>
+                        <p class="text-muted">Run an API Bypass test to check for accessible protected endpoints</p>
+                        <a href="{{ url_for('api_bypass_page') }}?domain=https://{{ domain.url }}&domain_id={{ domain.id }}" class="btn btn-dark">
+                            <i class="fas fa-key mr-1"></i>Run API Bypass Test
+                        </a>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="tab-pane fade" id="evidence" role="tabpanel" aria-labelledby="evidence-tab">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-camera mr-2 text-primary"></i>Evidence Screenshots</h5>
+                <button class="btn btn-primary" data-toggle="modal" data-target="#upload-screenshot-modal">
+                    <i class="fas fa-upload mr-1"></i>Upload Screenshot
+                </button>
+            </div>
+            <div class="card-body">
+                {% if domain.screenshots %}
+                <div class="screenshot-gallery">
+                    {% for screenshot in domain.screenshots %}
+                    <div class="screenshot-item">
+                        <div class="card screenshot-card">
+                            <div class="screenshot-img-container">
+                                <a href="{{ url_for('static', filename='uploads/' + screenshot.filename) }}" target="_blank" class="screenshot-link">
+                                    <img src="{{ url_for('static', filename='uploads/' + screenshot.filename) }}" 
+                                            alt="{{ screenshot.description or 'Screenshot' }}" 
+                                            class="card-img-top">
+                                </a>
+                            </div>
+                            <div class="card-body p-2">
+                                <small class="text-muted d-block">{{ screenshot.upload_date.strftime('%Y-%m-%d') }}</small>
+                                {% if screenshot.description %}
+                                <p class="small mb-2">{{ screenshot.description }}</p>
+                                {% endif %}
+                                <form action="{{ url_for('delete_screenshot', id=screenshot.id) }}" method="post" 
+                                        onsubmit="return confirm('Are you sure you want to delete this screenshot?');" 
+                                        class="text-right">
+                                    <button type="submit" class="btn btn-sm btn-danger">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-camera fa-3x text-muted mb-3"></i>
+                    <h5>No screenshots uploaded</h5>
+                    <p class="text-muted">Upload screenshots to document evidence of vulnerabilities</p>
+                    <button class="btn btn-primary" data-toggle="modal" data-target="#upload-screenshot-modal">
+                        <i class="fas fa-upload mr-1"></i>Upload Screenshot
+                    </button>
+                </div>
+                {% endif %}
+                
+                <div class="modal fade" id="upload-screenshot-modal" tabindex="-1" role="dialog" aria-hidden="true">
+                    <div class="modal-dialog" role="document">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">Upload Screenshot</h5>
+                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                    <span aria-hidden="true">&times;</span>
+                                </button>
+                            </div>
+                            <div class="modal-body">
+                                <form action="{{ url_for('upload_screenshot', id=domain.id) }}" method="post" enctype="multipart/form-data">
+                                    <div class="form-group">
+                                        <label for="screenshot">Choose Image</label>
+                                        <div class="custom-file">
+                                            <input type="file" class="custom-file-input" id="screenshot" name="screenshot" accept="image/*" required>
+                                            <label class="custom-file-label" for="screenshot">Choose file</label>
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="description">Description</label>
+                                        <textarea class="form-control" id="description" name="description" rows="3" placeholder="Describe what this screenshot shows"></textarea>
+                                    </div>
+                                    <div class="text-right">
+                                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+                                        <button type="submit" class="btn btn-primary">Upload</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="tab-pane fade" id="notes" role="tabpanel" aria-labelledby="notes-tab">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-clipboard-list mr-2 text-primary"></i>Investigation Notes</h5>
+            </div>
+            <div class="card-body">
+                <form action="{{ url_for('update_domain', id=domain.id) }}" method="post" class="mb-4">
+                    <div class="form-group">
+                        <label for="investigation-notes">Case Notes</label>
+                        <textarea class="form-control" id="investigation-notes" name="notes" rows="10" placeholder="Add your investigation notes, findings, and recommendations here...">{{ domain.notes or '' }}</textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="fas fa-save mr-1"></i>Save Notes
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // Initialize image preview for screenshots
+        const screenshotLinks = document.querySelectorAll('.screenshot-link');
+        
+        screenshotLinks.forEach(link => {
+            link.addEventListener('click', function(e) {
+                e.preventDefault();
+                
+                // Create a modal dynamically
+                const modal = document.createElement('div');
+                modal.className = 'modal fade';
+                modal.id = 'imageModal';
+                modal.setAttribute('tabindex', '-1');
+                modal.setAttribute('role', 'dialog');
+                modal.setAttribute('aria-hidden', 'true');
+                
+                const img = link.querySelector('img');
+                
+                modal.innerHTML = `
+                    <div class="modal-dialog modal-dialog-centered modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">${img.alt}</h5>
+                                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                    <span aria-hidden="true">&times;</span>
+                                </button>
+                            </div>
+                            <div class="modal-body text-center">
+                                <img src="${link.href}" class="img-fluid" alt="${img.alt}">
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.appendChild(modal);
+                $('#imageModal').modal('show');
+                
+                // Clean up when modal is hidden
+                $('#imageModal').on('hidden.bs.modal', function (e) {
+                    document.body.removeChild(modal);
+                });
+            });
+        });
+        
+        // Vulnerability filtering
+        const filterButtons = document.querySelectorAll('.filter-vuln');
+        const vulnTable = document.getElementById('vulnerabilities-table');
+        
+        if (filterButtons.length > 0 && vulnTable) {
+            filterButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const filter = this.getAttribute('data-filter');
+                    const rows = vulnTable.querySelectorAll('tbody tr');
+                    
+                    // Remove active class from all buttons
+                    filterButtons.forEach(btn => btn.classList.remove('active', 'btn-primary', 'btn-danger', 'btn-warning', 'btn-info'));
+                    
+                    // Add active class to clicked button
+                    if (filter === 'all') {
+                        this.classList.add('active', 'btn-primary');
+                    } else if (filter === 'critical') {
+                        this.classList.add('active', 'btn-danger');
+                    } else if (filter === 'high') {
+                        this.classList.add('active', 'btn-danger');
+                    } else if (filter === 'medium') {
+                        this.classList.add('active', 'btn-warning');
+                    } else if (filter === 'low') {
+                        this.classList.add('active', 'btn-info');
+                    }
+                    
+                    // Apply filter
+                    rows.forEach(row => {
+                        const severity = row.getAttribute('data-severity');
+                        if (filter === 'all' || severity === filter) {
+                            row.style.display = '';
+                        } else {
+                            row.style.display = 'none';
+                        }
+                    });
+                });
+            });
+        }
+        
+        // Toggle interesting endpoints only
+        const toggleInterestingBtn = document.getElementById('toggle-interesting-only');
+        const endpointsTable = document.getElementById('endpoints-table');
+        
+        if (toggleInterestingBtn && endpointsTable) {
+            let showingInterestingOnly = false;
+            
+            toggleInterestingBtn.addEventListener('click', function() {
+                const rows = endpointsTable.querySelectorAll('tbody tr');
+                
+                showingInterestingOnly = !showingInterestingOnly;
+                
+                if (showingInterestingOnly) {
+                    toggleInterestingBtn.textContent = 'Show All Endpoints';
+                    toggleInterestingBtn.classList.remove('btn-outline-primary');
+                    toggleInterestingBtn.classList.add('btn-primary');
+                    
+                    rows.forEach(row => {
+                        const isInteresting = row.getAttribute('data-interesting');
+                        if (isInteresting === 'true') {
+                            row.style.display = '';
+                        } else {
+                            row.style.display = 'none';
+                        }
+                    });
+                } else {
+                    toggleInterestingBtn.textContent = 'Show Interesting Only';
+                    toggleInterestingBtn.classList.remove('btn-primary');
+                    toggleInterestingBtn.classList.add('btn-outline-primary');
+                    
+                    rows.forEach(row => {
+                        row.style.display = '';
+                    });
+                }
+            });
+        }
+        
+        // Update the file input label with the selected filename
+        $('.custom-file-input').on('change', function() {
+            let fileName = $(this).val().split('\\').pop();
+            $(this).next('.custom-file-label').html(fileName);
+        });
+    });
+    
+    function inspectLocation(location, title, vulnId) {
+        // Create modal for detailed location inspection
+        const modal = $('<div class="modal fade" id="locationModal" tabindex="-1" role="dialog"></div>');
+        
+        // Determine if this is a JavaScript file or localStorage finding
+        const isJavaScript = location.toLowerCase().includes('.js') || title.toLowerCase().includes('javascript');
+        const isStorage = title.toLowerCase().includes('storage');
+        
+        modal.html(`
+            <div class="modal-dialog modal-lg" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Location Details: ${title}</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="form-group">
+                            <label>URL:</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" value="${location}" readonly>
+                                <div class="input-group-append">
+                                    <a href="${location}" target="_blank" class="btn btn-primary">
+                                        <i class="fas fa-external-link-alt"></i> Open
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>Analysis Options:</label>
+                            <div class="btn-group d-flex">
+                                ${isJavaScript ? 
+                                `<a href="/mainjs-analyzer?url=${encodeURIComponent(location)}" class="btn btn-warning flex-fill">
+                                    <i class="fas fa-code"></i> Analyze in Main.js Analyzer
+                                </a>` : ''}
+                                
+                                ${isStorage ? 
+                                `<button class="btn btn-info flex-fill" onclick="showStorageInspectionGuide()">
+                                    <i class="fas fa-database"></i> Storage Inspection Guide
+                                </button>` : ''}
+                            </div>
+                        </div>
+                        
+                        <div class="card mt-3">
+                            <div class="card-header">
+                                <h6 class="mb-0"><i class="fas fa-search mr-2"></i>Evidence</h6>
+                            </div>
+                            <div class="card-body">
+                                <pre id="evidence-content-${vulnId}" class="bg-dark text-light p-3" 
+                                     style="max-height: 300px; overflow-auto;">Loading evidence...</pre>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        `);
+        
+        modal.appendTo('body').modal('show');
+        
+        // Load evidence content
+        $(`#evidence-content-${vulnId}`).text($(`#vuln-modal-${vulnId} pre`).text());
+        
+        // Clean up when modal is closed
+        modal.on('hidden.bs.modal', function() {
+            modal.remove();
+        });
+    }
+
+    function showStorageInspectionGuide() {
+        const modal = $('<div class="modal fade" tabindex="-1" role="dialog"></div>');
+        modal.html(`
+            <div class="modal-dialog" role="document">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Storage Inspection Guide</h5>
+                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                    <div class="modal-body">
+                        <p>To inspect localStorage or sessionStorage:</p>
+                        <ol>
+                            <li>Open the website in your browser</li>
+                            <li>Press F12 to open Developer Tools</li>
+                            <li>Go to the "Application" tab (Chrome) or "Storage" tab (Firefox)</li>
+                            <li>Expand "Local Storage" or "Session Storage" in the left panel</li>
+                            <li>Click on the domain to view stored data</li>
+                        </ol>
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle"></i> Look for sensitive information that shouldn't be stored client-side.
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    </div>
+                </div>
+            </div>
+        `);
+        
+        modal.appendTo('body').modal('show');
+        
+        modal.on('hidden.bs.modal', function() {
+            modal.remove();
+        });
+    }
+</script>
+{% endblock %}

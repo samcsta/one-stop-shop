@@ -1,0 +1,16 @@
+id: ford-test-template
+info:
+  name: Ford Custom Test Template
+  author: Ford Red Team
+  severity: medium
+  description: A custom template for testing the scanner integration
+
+requests:
+  - method: GET
+    path:
+      - "{{BaseURL}}"
+    matchers:
+      - type: word
+        words:
+          - "<html"
+        part: body

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ford's Red Team Garage</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/css/bootstrap.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="d-flex" id="wrapper">
+        <div class="bg-primary text-white" id="sidebar-wrapper">
+            <div class="sidebar-heading d-flex align-items-center">
+                <i class="fas fa-shield-alt mr-2"></i>Ford's Red Team Garage
+            </div>
+            <div class="list-group list-group-flush">
+                <a href="{{ url_for('dashboard') }}" class="list-group-item list-group-item-action">
+                    <i class="fas fa-tachometer-alt mr-2"></i>Dashboard
+                </a>
+                <a href="{{ url_for('domains') }}" class="list-group-item list-group-item-action">
+                    <i class="fas fa-globe mr-2"></i>Domains
+                </a>
+                <a href="{{ url_for('workspace') }}" class="list-group-item list-group-item-action">
+                    <i class="fas fa-briefcase mr-2"></i>Workspace
+                </a>
+                <a href="{{ url_for('basic_scanner_page') }}" class="list-group-item list-group-item-action">
+                    <i class="fas fa-search mr-2"></i>Basic Scanner
+                </a>
+                <a href="{{ url_for('nuclei_scanner_page') }}" class="list-group-item list-group-item-action">
+                    <i class="fas fa-radiation mr-2"></i>Nuclei Scanner
+                </a>
+                {# *** CORRECTED LINK *** #}
+                <a href="{{ url_for('inspect_page') }}" class="list-group-item list-group-item-action">
+                    <i class="fas fa-search-plus mr-2"></i>Inspect
+                </a>
+                <a href="{{ url_for('api_bypass_page') }}" class="list-group-item list-group-item-action">
+                    <i class="fas fa-key mr-2"></i>API Endpoint Bypass
+                </a>
+            </div>
+        </div>
+
+        <div id="page-content-wrapper">
+            <nav class="navbar navbar-expand-lg navbar-light bg-white shadow-sm">
+                <button class="btn btn-link text-primary" id="menu-toggle">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <div class="navbar-nav ml-auto">
+                    <div class="nav-item d-flex align-items-center">
+                        <i class="fas fa-user-shield mr-2 text-primary"></i>
+                        <span>Red Team Operations</span>
+                    </div>
+                </div>
+            </nav>
+
+            <div class="container-fluid p-4 bg-light">
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            <div class="alert alert-{{ category }}">{{ message }}</div>
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                {% block content %}{% endblock %}
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@4.6.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+
+    <script>
+        // Toggle the sidebar
+        $(document).ready(function() {
+            $("#menu-toggle").click(function(e) {
+                e.preventDefault();
+                $("#wrapper").toggleClass("toggled");
+            });
+
+            // Highlight active page in sidebar
+            const currentUrl = window.location.pathname;
+            $('.list-group-item').each(function() {
+                const href = $(this).attr('href');
+                // Exact match or match ignoring trailing slash
+                if (currentUrl === href || currentUrl === href + '/') {
+                    $(this).addClass('active');
+                }
+                // Handle case where URL has query parameters
+                 else if (href && currentUrl.startsWith(href + '?')) { // Add check for href existence
+                     $(this).addClass('active');
+                 }
+            });
+        });
+    </script>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>

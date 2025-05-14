@@ -1,0 +1,535 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="dashboard-header d-flex justify-content-between align-items-center mb-4">
+    <h1 class="dashboard-title">Nuclei Scanner</h1>
+    <div>
+        <a href="{{ url_for('basic_scanner_page') }}" class="btn btn-primary">
+            <i class="fas fa-search mr-2"></i>Basic Scanner
+        </a>
+        <a href="{{ url_for('inspect_page') }}" class="btn btn-warning ml-2">
+            <i class="fas fa-code mr-2"></i>Main.js Analyzer
+        </a>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-md-5 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-radiation mr-2 text-primary"></i>Nuclei Scanner</h5>
+                <span class="badge badge-success" id="nuclei-status-badge">Nuclei Active</span>
+            </div>
+            <div class="card-body">
+                <form id="nuclei-scan-form" onsubmit="runNucleiScan(); return false;">
+                    <div class="form-group">
+                        <label for="nuclei-domain-input">Domain:</label>
+                        <div class="input-group">
+                            <div class="input-group-prepend">
+                                <span class="input-group-text"><i class="fas fa-globe"></i></span>
+                            </div>
+                            <input type="text" class="form-control" id="nuclei-domain-input" 
+                                   placeholder="example.com" value="{{ domain_to_scan }}" required>
+                        </div>
+                        <small class="form-text text-muted">Enter domain without http:// or https://</small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-cog mr-1 text-primary"></i>Scan Options:</label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="scan-cves" checked>
+                                    <label class="custom-control-label" for="scan-cves">CVEs</label>
+                                </div>
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="scan-vulns" checked>
+                                    <label class="custom-control-label" for="scan-vulns">Vulnerabilities</label>
+                                </div>
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="scan-misconfig" checked>
+                                    <label class="custom-control-label" for="scan-misconfig">Misconfigurations</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="scan-exposures" checked>
+                                    <label class="custom-control-label" for="scan-exposures">Exposures</label>
+                                </div>
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="scan-tech" checked>
+                                    <label class="custom-control-label" for="scan-tech">Technologies</label>
+                                </div>
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="scan-custom">
+                                    <label class="custom-control-label" for="scan-custom">Custom Templates</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label><i class="fas fa-exclamation-triangle mr-1 text-primary"></i>Severity Levels:</label>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="severity-critical" checked>
+                                    <label class="custom-control-label severity-critical" for="severity-critical">Critical</label>
+                                </div>
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="severity-high" checked>
+                                    <label class="custom-control-label severity-high" for="severity-high">High</label>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="severity-medium" checked>
+                                    <label class="custom-control-label severity-medium" for="severity-medium">Medium</label>
+                                </div>
+                                <div class="custom-control custom-checkbox">
+                                    <input type="checkbox" class="custom-control-input" id="severity-low">
+                                    <label class="custom-control-label severity-low" for="severity-low">Low</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-primary btn-block">
+                        <i class="fas fa-radiation mr-2"></i>Run Nuclei Scan
+                    </button>
+                </form>
+            </div>
+        </div>
+        
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-chart-bar mr-2 text-primary"></i>Scan Summary</h5>
+            </div>
+            <div class="card-body">
+                <div id="scan-summary" style="display: none;">
+                    <div class="row">
+                        <div class="col-md-12 mb-3">
+                            <h6 class="text-muted">Domain Status:</h6>
+                            <span class="badge badge-success badge-lg py-2 px-3" id="summary-status">Active</span>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <h6 class="text-muted">Vulnerabilities:</h6>
+                            <h3 id="summary-vulns-count">0</h3>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <h6 class="text-muted">Technologies:</h6>
+                            <h3 id="summary-techs-count">0</h3>
+                        </div>
+                    </div>
+                    
+                    <div id="summary-severity-breakdown" class="mt-3">
+                        <h6 class="text-muted">Severity Breakdown:</h6>
+                        <div class="row">
+                            <div class="col-md-6 col-6 mb-2">
+                                <div class="alert alert-purple p-2 mb-0 text-center">
+                                    <span class="severity-critical">Critical:</span> <span id="summary-critical-count">0</span>
+                                </div>
+                            </div>
+                            <div class="col-md-6 col-6 mb-2">
+                                <div class="alert alert-danger p-2 mb-0 text-center">
+                                    <span class="severity-high">High:</span> <span id="summary-high-count">0</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="row">
+                            <div class="col-md-6 col-6 mb-2">
+                                <div class="alert alert-warning p-2 mb-0 text-center">
+                                    <span class="severity-medium">Medium:</span> <span id="summary-medium-count">0</span>
+                                </div>
+                            </div>
+                            <div class="col-md-6 col-6 mb-2">
+                                <div class="alert alert-info p-2 mb-0 text-center">
+                                    <span class="severity-low">Low:</span> <span id="summary-low-count">0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <a href="#" id="view-domain-link" class="btn btn-primary btn-block">
+                            <i class="fas fa-eye mr-1"></i>View Complete Results
+                        </a>
+                    </div>
+                </div>
+                <div id="no-scan-summary" class="text-center py-3">
+                    <i class="fas fa-chart-bar fa-2x text-muted mb-2"></i>
+                    <p class="mb-0">Scan summary will appear here after running a scan.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="col-md-7 mb-4">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5 class="mb-0"><i class="fas fa-terminal mr-2 text-primary"></i>Nuclei Output</h5>
+                <button class="btn btn-sm btn-secondary" onclick="clearTerminal('nuclei-terminal')">
+                    <i class="fas fa-eraser mr-1"></i>Clear Output
+                </button>
+            </div>
+            <div class="card-body">
+                <div class="terminal" id="nuclei-terminal">
+                    Nuclei scanner initialized and ready. Enter a domain to begin scanning.
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <h5 class="mb-0"><i class="fas fa-bug mr-2 text-primary"></i>Detected Vulnerabilities</h5>
+            </div>
+            <div class="card-body">
+                <div id="vulnerabilities-container" style="display: none;">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Title</th>
+                                    <th>Severity</th>
+                                    <th>Type</th>
+                                    <th>Location</th>
+                                </tr>
+                            </thead>
+                            <tbody id="vulnerabilities-table-body">
+                                <!-- Vulnerabilities will be added here dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div id="no-vulnerabilities" class="text-center py-4">
+                    <i class="fas fa-shield-alt fa-3x text-muted mb-3"></i>
+                    <h5>No vulnerabilities detected yet</h5>
+                    <p class="text-muted">Run a scan to detect vulnerabilities.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.4.1/socket.io.min.js"></script>
+<script>
+// Connect to Socket.IO for real-time updates
+const socket = io();
+let currentScanId = null;
+
+// Handle nuclei scan updates
+socket.on('scan_update', function(data) {
+    // Only process messages for the current scan
+    if (currentScanId && data.scan_id.startsWith(currentScanId)) {
+        let messageClass = '';
+        
+        // Set message class based on status
+        switch(data.status) {
+            case 'error':
+                messageClass = 'text-danger';
+                break;
+            case 'warning':
+                messageClass = 'text-warning';
+                break;
+            case 'success':
+                messageClass = 'text-success';
+                break;
+            case 'info':
+                messageClass = 'text-info';
+                break;
+            case 'debug':
+                messageClass = 'text-muted small';
+                break;
+            case 'critical':
+                messageClass = 'severity-critical';
+                break;
+            case 'high':
+                messageClass = 'severity-high';
+                break;
+            case 'medium':
+                messageClass = 'severity-medium';
+                break;
+            case 'low':
+                messageClass = 'severity-low';
+                break;
+            default:
+                messageClass = '';
+        }
+        
+        // Add the message to the terminal
+        appendToTerminal('nuclei-terminal', data.message, messageClass);
+    }
+});
+
+// Run nuclei scan
+function runNucleiScan() {
+    const domain = document.getElementById('nuclei-domain-input').value.trim();
+    if (!domain) {
+        alert('Please enter a domain to scan');
+        return;
+    }
+    
+    // Get scan options
+    const scanOptions = [];
+    if (document.getElementById('scan-cves').checked) scanOptions.push('cves');
+    if (document.getElementById('scan-vulns').checked) scanOptions.push('vulnerabilities');
+    if (document.getElementById('scan-misconfig').checked) scanOptions.push('misconfiguration');
+    if (document.getElementById('scan-exposures').checked) scanOptions.push('exposures');
+    if (document.getElementById('scan-tech').checked) scanOptions.push('technologies');
+    if (document.getElementById('scan-custom').checked) scanOptions.push('custom-templates');
+    
+    // Get severity levels
+    const severityLevels = [];
+    if (document.getElementById('severity-critical').checked) severityLevels.push('critical');
+    if (document.getElementById('severity-high').checked) severityLevels.push('high');
+    if (document.getElementById('severity-medium').checked) severityLevels.push('medium');
+    if (document.getElementById('severity-low').checked) severityLevels.push('low');
+    
+    // Validate selections
+    if (scanOptions.length === 0) {
+        alert('Please select at least one scan option');
+        return;
+    }
+    
+    if (severityLevels.length === 0) {
+        alert('Please select at least one severity level');
+        return;
+    }
+    
+    // Clear terminal and update status
+    clearTerminal('nuclei-terminal');
+    document.getElementById('nuclei-status-badge').innerText = 'Scanning...';
+    document.getElementById('nuclei-status-badge').className = 'badge badge-warning';
+    
+    // Reset results
+    resetResults();
+    
+    // Generate a unique scan ID
+    currentScanId = 'nuclei_scan_' + Date.now();
+    
+    appendToTerminal('nuclei-terminal', `Starting nuclei scan for ${domain}...`);
+    appendToTerminal('nuclei-terminal', `Options: ${scanOptions.join(', ')}`);
+    appendToTerminal('nuclei-terminal', `Severity levels: ${severityLevels.join(', ')}`);
+    
+    // Make AJAX request to run the scan
+    fetch('/run-nuclei-scan', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `domain=${encodeURIComponent(domain)}&scan_options=${encodeURIComponent(scanOptions.join(','))}&severity_levels=${encodeURIComponent(severityLevels.join(','))}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        // Update status
+        document.getElementById('nuclei-status-badge').innerText = 'Scan Complete';
+        document.getElementById('nuclei-status-badge').className = 'badge badge-success';
+        
+        // Display results
+        displayResults(data);
+        
+        // Add view details button to terminal
+        if (data.domain_id) {
+            appendToTerminal('nuclei-terminal', `\n<a href="/domain/${data.domain_id}" class="btn btn-primary mt-2">View Complete Results in Domain Details</a>`, '');
+        }
+    })
+    .catch(error => {
+        document.getElementById('nuclei-status-badge').innerText = 'Scan Failed';
+        document.getElementById('nuclei-status-badge').className = 'badge badge-danger';
+        
+        appendToTerminal('nuclei-terminal', `Error during scan: ${error}`, 'text-danger');
+    });
+}
+
+// Reset results
+function resetResults() {
+    document.getElementById('scan-summary').style.display = 'none';
+    document.getElementById('no-scan-summary').style.display = 'block';
+    document.getElementById('vulnerabilities-container').style.display = 'none';
+    document.getElementById('no-vulnerabilities').style.display = 'block';
+    document.getElementById('vulnerabilities-table-body').innerHTML = '';
+}
+
+// Display results
+function displayResults(data) {
+    // Update summary
+    document.getElementById('no-scan-summary').style.display = 'none';
+    document.getElementById('scan-summary').style.display = 'block';
+    
+    // Update status
+    document.getElementById('summary-status').textContent = data.status;
+    document.getElementById('summary-status').className = 
+        data.status === 'ACTIVE' ? 'badge badge-success badge-lg py-2 px-3' : 'badge badge-danger badge-lg py-2 px-3';
+    
+    // Update counts
+    document.getElementById('summary-vulns-count').textContent = data.vulnerabilities ? data.vulnerabilities.length : 0;
+    document.getElementById('summary-techs-count').textContent = data.technologies ? data.technologies.length : 0;
+    
+    // Initialize severity counts
+    let criticalCount = 0;
+    let highCount = 0;
+    let mediumCount = 0;
+    let lowCount = 0;
+    
+    // Show vulnerabilities if any
+    if (data.vulnerabilities && data.vulnerabilities.length > 0) {
+        document.getElementById('no-vulnerabilities').style.display = 'none';
+        document.getElementById('vulnerabilities-container').style.display = 'block';
+        
+        // Get detailed vulnerability data
+        if (data.domain_id) {
+            // Make AJAX request to get detailed vulnerability data
+            fetch(`/domain/${data.domain_id}`)
+                .then(response => response.text())
+                .then(html => {
+                    // Create a temporary element to parse the HTML
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    
+                    // Get the vulnerabilities from the domain details page
+                    const vulnsTable = doc.querySelector('table');
+                    if (vulnsTable) {
+                        // Get the vulnerability rows
+                        const vulnRows = Array.from(vulnsTable.querySelectorAll('tbody tr'));
+                        
+                        // Build the vulnerabilities table
+                        let tableHtml = '';
+                        vulnRows.forEach(row => {
+                            const title = row.querySelector('td:first-child').textContent;
+                            const severity = row.querySelector('td:nth-child(2)').textContent.trim();
+                            
+                            // Count by severity
+                            if (severity.toUpperCase() === 'CRITICAL') criticalCount++;
+                            else if (severity.toUpperCase() === 'HIGH') highCount++;
+                            else if (severity.toUpperCase() === 'MEDIUM') mediumCount++;
+                            else if (severity.toUpperCase() === 'LOW') lowCount++;
+                            
+                            const type = title.includes('CVE-') ? 'CVE' : 
+                                        title.includes('CWE-') ? 'CWE' :
+                                        title.includes('Config') ? 'Misconfiguration' :
+                                        title.includes('Exposure') ? 'Exposure' : 'Vulnerability';
+                            
+                            const location = row.querySelector('td:nth-child(5)').textContent;
+                            
+                            // Add row to table
+                            tableHtml += `
+                                <tr>
+                                    <td>${title}</td>
+                                    <td><span class="severity-${severity.toLowerCase()}">${severity}</span></td>
+                                    <td>${type}</td>
+                                    <td>${location}</td>
+                                </tr>
+                            `;
+                        });
+                        
+                        // Update table
+                        document.getElementById('vulnerabilities-table-body').innerHTML = tableHtml;
+                        
+                        // Update severity counts
+                        document.getElementById('summary-critical-count').textContent = criticalCount;
+                        document.getElementById('summary-high-count').textContent = highCount;
+                        document.getElementById('summary-medium-count').textContent = mediumCount;
+                        document.getElementById('summary-low-count').textContent = lowCount;
+                    }
+                })
+                .catch(error => {
+                    console.error('Error fetching vulnerability details:', error);
+                });
+        } else {
+            // Use the vulnerability names from the scan result
+            let tableHtml = '';
+            data.vulnerabilities.forEach(vuln => {
+                // Guess the severity from the vulnerability name
+                let severity = 'MEDIUM';
+                if (vuln.toLowerCase().includes('critical')) severity = 'CRITICAL';
+                else if (vuln.toLowerCase().includes('high')) severity = 'HIGH';
+                else if (vuln.toLowerCase().includes('low')) severity = 'LOW';
+                
+                // Count by severity
+                if (severity === 'CRITICAL') criticalCount++;
+                else if (severity === 'HIGH') highCount++;
+                else if (severity === 'MEDIUM') mediumCount++;
+                else if (severity === 'LOW') lowCount++;
+                
+                // Guess the type
+                const type = vuln.includes('CVE-') ? 'CVE' : 
+                            vuln.includes('CWE-') ? 'CWE' :
+                            vuln.includes('Config') ? 'Misconfiguration' :
+                            vuln.includes('Exposure') ? 'Exposure' : 'Vulnerability';
+                
+                // Add row to table
+                tableHtml += `
+                    <tr>
+                        <td>${vuln}</td>
+                        <td><span class="severity-${severity.toLowerCase()}">${severity}</span></td>
+                        <td>${type}</td>
+                        <td>${data.domain}</td>
+                    </tr>
+                `;
+            });
+            
+            // Update table
+            document.getElementById('vulnerabilities-table-body').innerHTML = tableHtml;
+            
+            // Update severity counts
+            document.getElementById('summary-critical-count').textContent = criticalCount;
+            document.getElementById('summary-high-count').textContent = highCount;
+            document.getElementById('summary-medium-count').textContent = mediumCount;
+            document.getElementById('summary-low-count').textContent = lowCount;
+        }
+    }
+    
+    // Set up view domain link
+    if (data.domain_id) {
+        document.getElementById('view-domain-link').href = `/domain/${data.domain_id}`;
+    }
+}
+
+// Terminal output handling
+function appendToTerminal(terminalId, text, className = '') {
+    const terminal = document.getElementById(terminalId);
+    if (!terminal) return;
+    
+    const line = document.createElement('div');
+    if (className) {
+        line.className = className;
+    }
+    
+    // Handle HTML content if present
+    if (text.includes('<') && text.includes('>') && text.includes('</')) {
+        line.innerHTML = text;
+    } else {
+        line.textContent = text;
+    }
+    
+    terminal.appendChild(line);
+    terminal.scrollTop = terminal.scrollHeight;
+}
+
+// Clear terminal
+function clearTerminal(terminalId) {
+    const terminal = document.getElementById(terminalId);
+    if (terminal) {
+        terminal.innerHTML = '';
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', function() {
+    // Auto-run scan if URL parameters indicate to do so
+    const urlParams = new URLSearchParams(window.location.search);
+    const autorun = urlParams.get('autorun');
+    
+    if (autorun === 'true' && document.getElementById('nuclei-domain-input').value) {
+        setTimeout(runNucleiScan, 500);
+    }
+});
+</script>
+{% endblock %}

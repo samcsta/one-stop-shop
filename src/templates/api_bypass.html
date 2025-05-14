@@ -1,0 +1,240 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h1 class="mb-4">API Endpoint Bypass</h1>
+
+<div class="card mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-key mr-2 text-primary"></i>403 Bypass Test</h5>
+        <span class="badge badge-info">Cross-Platform Compatible</span>
+    </div>
+    <div class="card-body">
+        {% if domain_to_test %}
+        <div class="alert alert-info">
+            <i class="fas fa-info-circle mr-2"></i>Testing domain: {{ domain_to_test }}
+        </div>
+        {% endif %}
+        
+        <form id="bypass-form" onsubmit="runApiBypass(); return false;">
+            <!-- Hidden input for domain ID -->
+            <input type="hidden" id="domain-id-input" name="domain_id" value="{{ domain_id }}" />
+            
+            <div class="form-group">
+                <label for="bypass-domain-input">Domain:</label>
+                <div class="input-group">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text"><i class="fas fa-globe"></i></span>
+                    </div>
+                    <input type="text" class="form-control" id="bypass-domain-input" 
+                           placeholder="https://example.com" value="{{ domain_to_test }}" required>
+                </div>
+                <small class="form-text text-muted">Enter the full URL including https:// prefix</small>
+            </div>
+            
+            <div class="form-group">
+                <label for="wordlist-select">Wordlist:</label>
+                <div class="input-group">
+                    <div class="input-group-prepend">
+                        <span class="input-group-text"><i class="fas fa-list"></i></span>
+                    </div>
+                    <select class="form-control" id="wordlist-select" required>
+                        <option value="">Select a wordlist</option>
+                        {% for wordlist in wordlists %}
+                        <option value="{{ wordlist }}">{{ wordlist }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <small class="form-text text-muted">Place your wordlists in the 'wordlists' directory of the application</small>
+            </div>
+            
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-play mr-2"></i>Run Bypass Test
+            </button>
+        </form>
+        
+        <div class="mt-3">
+            <p><i class="fas fa-info-circle text-primary mr-1"></i> This tool tests various techniques to bypass 403 Forbidden responses.</p>
+            <p><small class="text-muted">Note: Running on Windows? We've implemented a cross-platform version that works on all operating systems.</small></p>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="fas fa-terminal mr-2 text-primary"></i>Results</h5>
+        <button class="btn btn-sm btn-outline-secondary" onclick="clearTerminal('bypass-terminal')" id="clear-results-btn" style="display: none;">
+            <i class="fas fa-eraser mr-1"></i>Clear Results
+        </button>
+    </div>
+    <div class="card-body">
+        <div class="terminal" id="bypass-terminal">Enter a domain and select a wordlist to start the test.</div>
+        
+        <div class="mt-4" id="recommendations-section" style="display: none;">
+            <h5><i class="fas fa-lightbulb mr-2 text-warning"></i>Recommendations</h5>
+            <div class="alert alert-info" id="recommendations-content"></div>
+            
+            <div class="mt-3">
+                <h5><i class="fas fa-check-circle mr-2 text-success"></i>Successful Bypasses</h5>
+                <div class="list-group" id="successful-bypasses-list"></div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Custom appendToTerminal function for API Bypass
+function appendToTerminal(terminalId, text, className = '') {
+    const terminal = document.getElementById(terminalId);
+    if (!terminal) return;
+    
+    // Check if we're in the API bypass terminal (which needs special formatting)
+    const isApiBypassTerminal = terminalId === 'bypass-terminal';
+    
+    if (isApiBypassTerminal) {
+        // Process the text line by line to apply appropriate styling
+        const lines = text.split('\n');
+        lines.forEach(line => {
+            const lineElement = document.createElement('div');
+            
+            // Apply special formatting
+            if (line.includes('<200>')) {
+                // Success line (200 status)
+                lineElement.className = 'success-line';
+                line = line.replace('<200>', '');
+            } else if (line.includes('<===HEADER=')) {
+                // Header line
+                lineElement.className = 'header-line';
+                line = line.replace(/<===HEADER=/g, '').replace(/HEADER=>/g, '');
+            } else if (line.includes('Error')) {
+                // Error line
+                lineElement.className = 'error-line';
+            } else {
+                // Regular line
+                lineElement.className = 'command-line';
+                if (className) {
+                    lineElement.className += ' ' + className;
+                }
+            }
+            
+            lineElement.textContent = line;
+            terminal.appendChild(lineElement);
+        });
+    } else {
+        // Standard terminal output for scanner and other terminals
+        const line = document.createElement('div');
+        if (className) {
+            line.className = className;
+        }
+        
+        // Handle HTML content if present
+        if (text.includes('<') && text.includes('>') && text.includes('</')) {
+            line.innerHTML = text;
+        } else {
+            line.textContent = text;
+        }
+        
+        terminal.appendChild(line);
+    }
+    
+    terminal.scrollTop = terminal.scrollHeight;
+}
+
+// Clear terminal
+function clearTerminal(terminalId) {
+    const terminal = document.getElementById(terminalId);
+    if (terminal) {
+        terminal.innerHTML = '';
+    }
+}
+
+function runApiBypass() {
+    const domain = document.getElementById('bypass-domain-input').value.trim();
+    const wordlist = document.getElementById('wordlist-select').value;
+    const domainId = document.getElementById('domain-id-input')?.value;
+    
+    if (!domain || !wordlist) {
+        alert('Please enter a domain and select a wordlist');
+        return;
+    }
+    
+    clearTerminal('bypass-terminal');
+    appendToTerminal('bypass-terminal', `Starting 403 bypass test for ${domain} using ${wordlist}...`);
+    
+    // Show clear results button
+    document.getElementById('clear-results-btn').style.display = 'block';
+    
+    // Hide recommendations while test is running
+    document.getElementById('recommendations-section').style.display = 'none';
+    
+    fetch('/run-bypass', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: `domain=${encodeURIComponent(domain)}&wordlist=${encodeURIComponent(wordlist)}${domainId ? '&domain_id=' + encodeURIComponent(domainId) : ''}`
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.error) {
+            appendToTerminal('bypass-terminal', `Error: ${data.error}`, 'error-line');
+            return;
+        }
+        
+        // Clear the terminal before showing results
+        clearTerminal('bypass-terminal');
+        
+        // Display full output in terminal with appropriate styling
+        appendToTerminal('bypass-terminal', data.output);
+        
+        // Display recommendations and successful bypasses if any
+        if (data.successful_bypasses && data.successful_bypasses.length > 0) {
+            document.getElementById('recommendations-section').style.display = 'block';
+            document.getElementById('recommendations-content').innerText = data.recommendations;
+            
+            const bypassList = document.getElementById('successful-bypasses-list');
+            bypassList.innerHTML = '';
+            
+            data.successful_bypasses.forEach(bypass => {
+                const item = document.createElement('div');
+                item.className = 'list-group-item list-group-item-success';
+                item.innerHTML = `<code>${bypass}</code>`;
+                bypassList.appendChild(item);
+            });
+            
+            // If we have domain_id, store results in database via API call
+            if (domainId) {
+                fetch(`/api-bypass/store/${domainId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        domain: domain,
+                        successful_bypasses: data.successful_bypasses,
+                        recommendations: data.recommendations
+                    })
+                })
+                .then(res => res.json())
+                .then(storeResult => {
+                    if (storeResult.success) {
+                        appendToTerminal('bypass-terminal', '\nBypass results stored successfully and will appear in Domain Details page', 'success-line');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error storing results:', error);
+                });
+            }
+        } else {
+            document.getElementById('recommendations-section').style.display = 'block';
+            document.getElementById('recommendations-content').innerText = "No successful bypasses found. The endpoint may not be vulnerable to 403 bypass techniques.";
+            document.getElementById('successful-bypasses-list').innerHTML = '<div class="list-group-item">No successful bypasses found</div>';
+        }
+    })
+    .catch(error => {
+        appendToTerminal('bypass-terminal', `Error during bypass test: ${error}`, 'error-line');
+    });
+}
+</script>
+{% endblock %}
